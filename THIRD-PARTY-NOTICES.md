@@ -3,8 +3,8 @@
 Meeting Transcriber itself is MIT licensed (see `LICENSE`).
 
 **Scope:** this file covers every third-party component redistributed in the
-shipped application, whether statically linked into the app binary or bundled as
-a data resource. The licence text of each ships inside the app at
+shipped application, whether statically linked into the app binary, embedded as
+a dynamic framework, or bundled as a data resource. The licence text of each ships inside the app at
 `Contents/Resources/licenses/`, and the same files are kept in this repository
 under `licenses/`.
 
@@ -179,6 +179,52 @@ linked archive, where ggml accounts for most of them.
 - **Copyright:** 2023-2026 The ggml authors
 - **License:** MIT. The full text ships as
   `Contents/Resources/licenses/ggml-LICENSE.txt`.
+
+## whisper.cpp
+
+Speech recognition for the "Whisper Large V3 Full" transcription engine,
+redistributed as a **dynamic framework** inside the bundle at
+`Contents/Frameworks/whisper.framework` — the only third-party component here
+that is not statically linked or a data file.
+
+- **Project:** <https://github.com/ggml-org/whisper.cpp>
+- **Version:** v1.9.2. Not in `Package.resolved`: it is a `binaryTarget` in
+  `app/MeetingTranscriber/Package.swift`, pinned there by URL and SHA-256.
+- **Artifact:** `whisper-v1.9.2-xcframework.zip`, upstream's own release asset,
+  built by its `build-xcframework.sh` in upstream CI. Unlike LocalVQE this
+  needs no republishing by us, because upstream does ship an Apple artifact.
+- **Copyright:** 2023-2026 The ggml authors
+- **License:** MIT. MIT requires the copyright and permission notice in all
+  copies and a framework in a bundle is a copy, so the text ships as
+  `Contents/Resources/licenses/whisper.cpp-LICENSE.txt`. It is byte-identical
+  to `ggml-LICENSE.txt` — same holders, same terms — and shipped under its own
+  name anyway so the attribution names the component rather than leaving a
+  reader to infer that one file covers two projects.
+
+The framework statically links ggml, which is already attributed above for
+LocalVQE; the notice covering it applies here too and is the same file.
+
+### The model weights are NOT redistributed
+
+The engine needs `ggml-large-v3.bin` (~2.9 GB, f16). It is not in this
+repository, not in the bundle, and not in Git LFS: the app downloads it on
+first use into
+`~/Library/Application Support/MeetingTranscriber/models/whisper.cpp/`, the same
+way WhisperKit and FluidAudio fetch theirs. Nothing here therefore redistributes
+the weights.
+
+- **Source:** <https://huggingface.co/ggerganov/whisper.cpp> — whisper.cpp's own
+  GGML conversion of OpenAI Whisper large-v3, and the same repository, filename
+  and bytes Meetily downloads, which is what makes a model-for-model comparison
+  against it exact.
+- **Pin:** revision `5359861c739e955e79d9a303bcbc70fb988958b1`, SHA-256
+  `64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2`, 3,095,033,483
+  bytes. Verified before the file is ever visible under its final name; a
+  mismatch discards the download rather than retrying it. All three values live
+  in `app/MeetingTranscriber/Sources/WhisperCppModel.swift`.
+- **Upstream model:** OpenAI Whisper (<https://github.com/openai/whisper>),
+  MIT licensed, © 2022 OpenAI. Stated as provenance; no notice obligation
+  arises here because the weights are not redistributed.
 
 ## How these files get into the bundle
 

@@ -40,6 +40,32 @@ let package = Package(
             url: "https://github.com/pasrom/localvqe-xcframework/releases/download/1.0.3/LocalVQE.xcframework.zip",
             checksum: "15a7503e7d764012ee955ba04cef78a0b24f8d51856fc85b96d9be49d38624ba"
         ),
+        // whisper.cpp, the runtime behind the "Whisper Large V3 Full" engine.
+        //
+        // This is upstream's OWN release asset, not a repackaging: whisper.cpp
+        // builds `whisper.xcframework` in CI via `build-xcframework.sh` and
+        // attaches it to every tagged release, so the pin below needs no vendor
+        // repository of ours (unlike CLocalVQE above, where upstream ships no
+        // Apple artifact at all). Checksum-pinned for the same reason: a swapped
+        // asset must fail the build rather than ship silently.
+        //
+        // Built with GGML_METAL=ON + GGML_METAL_EMBED_LIBRARY=ON, so the Metal
+        // kernels live inside the binary and no `.metallib` has to be installed
+        // into the bundle. Also WHISPER_COREML=ON with
+        // WHISPER_COREML_ALLOW_FALLBACK=ON, which is what lets it initialise
+        // without an `-encoder.mlmodelc` sidecar next to the model instead of
+        // refusing to load.
+        //
+        // Unlike CLocalVQE this slice is a DYNAMIC framework
+        // (`@rpath/whisper.framework/Versions/Current/whisper`), so a bundle has
+        // to carry it in `Contents/Frameworks` and re-sign it with the app's own
+        // identity — see scripts/lib/whisper-framework.sh for both halves and
+        // for why a self-signed bundle otherwise dies before `main()`.
+        .binaryTarget(
+            name: "whisper",
+            url: "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-v1.9.2-xcframework.zip",
+            checksum: "af74fed13ea7f2d5ca2a39d9f58ec177713fafd7cab63aef4e27b79f3ceca80b"
+        ),
         .executableTarget(
             name: "MeetingTranscriber",
             dependencies: [
@@ -47,6 +73,7 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "AudioTapLib", package: "audiotap"),
                 "CLocalVQE",
+                "whisper",
             ],
             path: "Sources",
             // Assets.xcassets is compiled by `actool` in scripts/build_release.sh,
