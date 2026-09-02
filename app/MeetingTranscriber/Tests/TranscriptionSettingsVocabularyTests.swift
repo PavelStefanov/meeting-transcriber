@@ -42,8 +42,8 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
         )
     }
 
-    func testVocabularyControlsRemainAvailableForBothEngines() throws {
-        for engine in [TranscriptionEngineSetting.parakeet, .whisperKit] {
+    func testVocabularyControlsRemainAvailableForEveryEngine() throws {
+        for engine in TranscriptionEngineSetting.availableCases {
             let settings = AppSettings(defaults: defaults)
             settings.transcriptionEngine = engine
             XCTAssertNoThrow(
@@ -139,6 +139,7 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
             settings: settings,
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
         )
     }
 }

@@ -6,6 +6,7 @@ struct TranscriptionSettingsView: View {
     @Bindable var settings: AppSettings
     var whisperKitEngine: WhisperKitEngine
     var parakeetEngine: ParakeetEngine
+    var whisperCppEngine: WhisperCppEngine
 
     /// Set when the user flips live captions on while a first-use Nemotron model
     /// download is pending — defers the actual enable to the consent alert.
@@ -31,27 +32,7 @@ struct TranscriptionSettingsView: View {
                     }
                 }
 
-                if settings.transcriptionEngine == .whisperKit {
-                    Picker("Model", selection: $settings.whisperKitModel) {
-                        ForEach(Self.whisperKitModels, id: \.variant) { model in
-                            Text(model.label).tag(model.variant)
-                        }
-                    }
-
-                    Picker("Language", selection: $settings.whisperLanguage) {
-                        ForEach(PickerLanguages.whisperKit, id: \.code) { lang in
-                            Text(lang.label).tag(lang.code)
-                        }
-                    }
-                }
-
-                if settings.transcriptionEngine == .parakeet {
-                    Picker("Language", selection: $settings.parakeetLanguage) {
-                        ForEach(PickerLanguages.parakeet, id: \.code) { lang in
-                            Text(lang.label).tag(lang.code)
-                        }
-                    }
-                }
+                engineOptions
 
                 HStack {
                     TextField("Custom vocabulary file", text: Binding(
@@ -118,6 +99,50 @@ struct TranscriptionSettingsView: View {
         .formStyle(.grouped)
     }
 
+    /// The per-engine controls: WhisperKit's model list, the language picker
+    /// the two Whisper backends share, and whisper.cpp's footnote.
+    ///
+    /// Hoisted out of `body` for the same reason `liveTranscriptionSection` is:
+    /// three sibling conditionals inside the `Form` builder push the `body`
+    /// type-check towards the 300 ms hard limit. Extracting them makes the
+    /// section cheaper to type-check than it was before the third engine.
+    @ViewBuilder
+    private var engineOptions: some View { // swiftlint:disable:this attributes
+        if settings.transcriptionEngine == .whisperKit {
+            Picker("Model", selection: $settings.whisperKitModel) {
+                ForEach(Self.whisperKitModels, id: \.variant) { model in
+                    Text(model.label).tag(model.variant)
+                }
+            }
+        }
+
+        // The same picker and the same `whisperLanguage` setting for both
+        // Whisper backends — one model family, one set of ISO codes, and a
+        // second language list is exactly what the new engine must not add.
+        if settings.transcriptionEngine.usesWhisperLanguage {
+            Picker("Language", selection: $settings.whisperLanguage) {
+                ForEach(PickerLanguages.whisperKit, id: \.code) { lang in
+                    Text(lang.label).tag(lang.code)
+                }
+            }
+        }
+
+        if settings.transcriptionEngine == .whisperCpp {
+            Text(Self.whisperCppFootnote)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if settings.transcriptionEngine == .parakeet {
+            Picker("Language", selection: $settings.parakeetLanguage) {
+                ForEach(PickerLanguages.parakeet, id: \.code) { lang in
+                    Text(lang.label).tag(lang.code)
+                }
+            }
+        }
+    }
+
     /// Hoisted out of `body` into a named property so the section's nesting
     /// doesn't grow the `body` type-check past the 300 ms hard limit on CI.
     private var liveTranscriptionSection: some View {
@@ -174,6 +199,10 @@ struct TranscriptionSettingsView: View {
     /// different levels of influence over recognition.
     static func vocabularyHelpText(for engine: TranscriptionEngineSetting) -> String {
         switch engine {
+        case .whisperCpp:
+            "Not used by this engine. whisper.cpp is run with no decoder prompt, matching the reference "
+                + "configuration this engine reproduces; the file still applies to the other engines."
+
         case .parakeet:
             "Text file with one term per line. Parakeet uses CTC rescoring for saved transcription. "
                 + "Live captions do not use CTC vocabulary rescoring."
@@ -241,8 +270,20 @@ struct TranscriptionSettingsView: View {
         switch settings.transcriptionEngine {
         case .parakeet: parakeetEngine
         case .whisperKit: whisperKitEngine
+        case .whisperCpp: whisperCppEngine
         }
     }
+
+    /// What choosing this engine actually costs and gives up, next to the
+    /// picker that chose it. Deliberately plain text in the existing section
+    /// rather than a dialog: the download is large but it is the point of the
+    /// engine, and the caption is the app's established way of qualifying a
+    /// setting (live captions, vocabulary prompt, terminology rules all do it).
+    static let whisperCppFootnote = "Full-precision Whisper large-v3 (f16) via whisper.cpp on Metal. "
+        + "Downloads a 2.9 GB model once, into Application Support, and keeps it loaded "
+        + "for five minutes after a job. Slower than the other engines and aimed at "
+        + "accuracy instead; live captions need a language selected above, since this "
+        + "engine has no partial-transcript hook of its own."
 
     @ViewBuilder
     private var engineStatusView: some View { // swiftlint:disable:this attributes

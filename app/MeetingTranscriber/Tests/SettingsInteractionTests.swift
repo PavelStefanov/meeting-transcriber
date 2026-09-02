@@ -47,6 +47,7 @@ final class SettingsInteractionTests: XCTestCase {
             settings: settings,
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
         )
 
         let picker = try view.inspect().find(ViewType.Picker.self) { picker in

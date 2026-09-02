@@ -1,46 +1,5 @@
 import SwiftUI
 
-// SwiftFormat strips redundant raw values matching their case name, which then
-// trips SwiftLint's `raw_value_for_camel_cased_codable_enum`; the rawValues
-// already match (the rule is a stability hint, not a behavioral requirement),
-// so disable the lint here rather than fight the formatter.
-enum TranscriptionEngineSetting: String, CaseIterable, Codable {
-    // swiftlint:disable:next raw_value_for_camel_cased_codable_enum
-    case whisperKit
-    case parakeet
-
-    var label: String {
-        switch self {
-        case .whisperKit: "WhisperKit (Whisper)"
-        case .parakeet: "Parakeet TDT v3 (NVIDIA)"
-        }
-    }
-
-    /// Whether this engine is available on the current platform. Both current
-    /// engines run everywhere the app does; kept as a capability hook for
-    /// engines with stricter OS floors.
-    var isAvailable: Bool {
-        switch self {
-        case .whisperKit, .parakeet: true
-        }
-    }
-
-    /// Cases available on the current platform. Used in UI pickers instead of allCases.
-    static var availableCases: [Self] {
-        allCases.filter(\.isAvailable)
-    }
-
-    /// Whether the engine implements `transcribeSamples([Float])` so the
-    /// live-transcription pipeline can feed it VAD-bounded windows. Both current
-    /// engines do; kept as an exhaustive `switch` (not a stored `true`) so a
-    /// future non-streaming engine is forced to declare its support here.
-    var supportsLiveTranscription: Bool {
-        switch self {
-        case .whisperKit, .parakeet: true
-        }
-    }
-}
-
 enum DiarizerMode: String, CaseIterable, Codable {
     // RawValues are implicit (= case name). Future case renames must
     // either keep the rawValue stable (`case foo = "offline"`) or add a
