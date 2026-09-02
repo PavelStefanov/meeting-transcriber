@@ -5,12 +5,13 @@
 ```
 VERSION                    # App version (read by build scripts)
 app/MeetingTranscriber/    # Swift macOS menu-bar app (SPM)
-  Package.swift            # WhisperKit + FluidAudio + AudioTapLib runtime deps;
+  Package.swift            # WhisperKit + FluidAudio + AudioTapLib + whisper.cpp runtime deps;
                            #   ViewInspector + SnapshotTesting test deps
   Sources/                 # @main app shell + AppState composition root wiring the concern
                            #   controllers (engines, watching, pipeline, permissions, channel
                            #   health, live transcription, RPC). ASR engines: WhisperKitEngine
-                           #   (99+ langs) + ParakeetEngine (25 EU langs, via FluidAudio).
+                           #   (99+ langs) + ParakeetEngine (25 EU langs, via FluidAudio)
+                           #   + WhisperCppEngine (full f16 large-v3 via whisper.cpp/Metal).
                            #   Diarization + VAD: FluidDiarizer (offline + Sortformer), FluidVAD,
                            #   SpeakerMatcher. Recording: DualSourceRecorder (app audio + mic).
                            #   Post-processing: PipelineQueue (transcribe -> diarize -> protocol).
@@ -40,8 +41,8 @@ speakers.json / .env       # Runtime voice profiles + env vars (gitignored)
 ## Pipeline
 
 ```
-Dual-source: AudioTapLib (CATapDescription + AVAudioEngine) → separate 16kHz audio → [WhisperKit | Parakeet] per track → FluidAudio diarization per track (CoreML/ANE) → merge speakers → Claude CLI / OpenAI-compatible API → Markdown protocol
-Single-source: Audio/Video → 16kHz mono (AVAudioFile → AVAsset → ffmpeg fallback) → [WhisperKit | Parakeet] → FluidAudio diarization → Claude CLI / OpenAI-compatible API → Markdown protocol
+Dual-source: AudioTapLib (CATapDescription + AVAudioEngine) → separate 16kHz audio → [WhisperKit | Parakeet | whisper.cpp] per track → FluidAudio diarization per track (CoreML/ANE) → merge speakers → Claude CLI / OpenAI-compatible API → Markdown protocol
+Single-source: Audio/Video → 16kHz mono (AVAudioFile → AVAsset → ffmpeg fallback) → [WhisperKit | Parakeet | whisper.cpp] → FluidAudio diarization → Claude CLI / OpenAI-compatible API → Markdown protocol
 ```
 
 ## Setup
@@ -126,10 +127,65 @@ Use the `/git-workflow` skill. Commit proactively after every logical unit of wo
 ## Architecture Notes
 
 **Transcription engines:**
-- `TranscribingEngine` protocol abstracts ASR backends. Two implementations: `WhisperKitEngine` (99+ languages, ~1 GB model) and `ParakeetEngine` (25 EU languages, ~50 MB model, ~10× faster).
-- `AppSettings.transcriptionEngine` enum (`.whisperKit` / `.parakeet`) selects the engine. Settings UI shows engine picker; engine-specific options hidden when not selected. `availableCases` (filtered by `isAvailable`) is the picker source — a capability hook kept for engines with stricter OS floors.
+- `TranscribingEngine` protocol abstracts ASR backends. Three implementations: `WhisperKitEngine` (99+ languages, ~1 GB model), `ParakeetEngine` (25 EU languages, ~50 MB model, ~10× faster) and `WhisperCppEngine` (full-precision f16 Whisper large-v3, ~2.9 GB, via whisper.cpp on Metal).
+- `AppSettings.transcriptionEngine` enum (`.whisperKit` / `.parakeet` / `.whisperCpp`) selects the engine. Settings UI shows engine picker; engine-specific options hidden when not selected. `availableCases` (filtered by `isAvailable`) is the picker source — a capability hook kept for engines with stricter OS floors.
 - Parakeet auto-detects language (no parameter) and supports custom vocabulary via CTC boosting (`ParakeetEngine.customVocabularyPath`). WhisperKit supports explicit language selection.
 - `EngineController` (`@MainActor`) owns the engine instances + the active-engine selection (`activeTranscriptionEngine`, used by `PipelineQueue`) + the settings → engine language/vocabulary sync (up-front + reactive) + launch model preload. `AppState` exposes it as `engines`.
+
+**whisper.cpp engine (full Whisper large-v3):** added to reproduce a measured
+quality result rather than to replace anything — full f16 large-v3 through
+whisper.cpp beat the WhisperKit path on real Russian meeting audio (as shipped
+in Meetily). Reachable as one more entry at the bottom of the existing Engine
+picker; nothing else about the UX changes, and diarization / Known Voices /
+persistent speaker recognition are untouched.
+- **Native integration** is upstream's own `whisper.xcframework` release asset,
+  pinned by URL + SHA-256 as a `binaryTarget` named `whisper` (v1.9.2, Metal
+  with embedded shaders, CoreML with `ALLOW_FALLBACK`). It is the only
+  **dynamic** framework in the bundle, so `scripts/lib/whisper-framework.sh`
+  embeds it into `Contents/Frameworks`, adds `@executable_path/../Frameworks`
+  to the executable with `install_name_tool`, and signs it before the app —
+  Library Validation rejects a framework whose Team ID differs from the app's,
+  and the app is `LSUIElement`, so that failure is completely silent. Both
+  `build_release.sh` and `run_app.sh` call it, fatally.
+- **One model, no variant picker** (`WhisperCppModel`): a picker is how "full
+  large-v3" quietly becomes turbo or q5_0, which is the substitution the engine
+  exists to avoid. Pinned by HuggingFace revision *and* SHA-256 *and* byte
+  count, from the same `ggerganov/whisper.cpp` repository Meetily downloads
+  from. Downloaded on first use into
+  `AppPaths.whisperCppModelsDir` (under Application Support, deliberately not a
+  cache); the download reuses the existing per-engine `EngineModelState` /
+  `downloadProgress` display, so there is no new model-management UI. The
+  2.9 GB size is in the picker label, which is what makes the download an
+  informed choice instead of a consent dialog.
+- **Decoding parameters are a documented literal**, not a settings surface:
+  `WhisperCppDecodingConfig.meetilyParity`. The load-bearing discovery recorded
+  there: Meetily requests `BeamSearch { beam_size: 3 }` *with* `temperature =
+  0.2`, and whisper.cpp reads its decoder count from `greedy.best_of` (default
+  -1 → 1) whenever the temperature is non-zero, so the beam width is inert and
+  the decode is effectively single-path. Reproduced rather than corrected —
+  "fixing" it would make the comparison a different experiment.
+- **The one deliberate divergence** is `no_timestamps`. Meetily sets it and
+  takes timing from its own VAD chunk offsets; this pipeline hands over whole
+  recordings and needs per-utterance timestamps for diarization, the dual-track
+  merge and the echo dedup. With the flag on, whisper.cpp suppresses every
+  timestamp token and advances a full 30 s window per decode.
+- **Batch only:** no `transcribeSamples`, so `supportsLiveTranscription` is
+  false. Captions still work with a language explicitly selected
+  (`LiveCaptionsGate` routes those to engine-independent streaming backends);
+  only auto-detect loses them.
+- **Serialization is a serial `DispatchQueue`, not an actor** (`WhisperCppRunner`):
+  a `whisper_context` is not thread safe and every call into it blocks for
+  seconds to minutes, so an actor would suspend at each `await` and let a
+  second call reenter the same context. The context is released five minutes
+  after the last job (`WhisperCppEngine.idleUnloadDelay`) because 3.1 GB
+  resident through the next meeting competes with the recorder, the diarizer
+  and the live-caption models.
+- **Language reuses `AppSettings.whisperLanguage`** and `PickerLanguages.whisperKit`
+  — same model family, same ISO codes, one picker, no second list. `fil` is
+  rewritten to `tl` and anything whisper.cpp does not know falls back to
+  auto-detect, because an unknown code does not fail there: `whisper_lang_id`
+  answers -1 and the prompt gets the start-of-transcript token in the language
+  slot with no diagnostic anywhere.
 
 **Live captions (PoC):** "Show partial transcripts during recording" in Settings → Transcribe (`AppSettings.liveTranscriptionEnabled`, off by default; enabling downloads a ~0.6 GB model on first use behind a consent alert).
 - `LiveCaptionsGate.strategy(liveEnabled:engineLanguage:engineSupportsLive:)` is the pure decision function (shared by `AppState`, `LiveTranscriptionCoordinator`, `LiveTranscriptionController`) that routes each channel by the active engine's **explicitly configured** language: `en` → `EouStreamingCaptionSession` (FluidAudio Parakeet EOU), any other explicit language → `NemotronStreamingCaptionSession`/`NemotronAsrManager` (FluidAudio Nemotron multilingual), auto-detect → re-transcribe via `StreamingTranscriber` if the engine supports it, else off.
@@ -354,6 +410,7 @@ Two build variants controlled by compile-time flag `APPSTORE` (`-Xswiftc -DAPPST
 | **OpenAI API** | Yes | Yes (only LLM option) |
 | **Debug RPC server** | Yes (env-gated) | No (`#if !APPSTORE`) |
 | **Safari call audio** | Yes (`ProcessResponsibility` via `dlsym`) | No (private symbol unavailable; bundle-derived PIDs only) |
+| **whisper.cpp engine** | Yes | Yes (nothing about it is sandbox-sensitive) |
 | **Entitlements** | Mic only | Sandbox + mic + network + file picker |
 | **Build** | `./scripts/build_release.sh` | `./scripts/build_release.sh --appstore` |
 | **Tests** | ~1,900 | fewer (CLI + RPC tests excluded via `#if !APPSTORE`) |
