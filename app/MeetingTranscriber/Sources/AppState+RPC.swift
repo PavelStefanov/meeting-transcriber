@@ -394,6 +394,12 @@
                     customVocabularyPath: engines.parakeetEngine.customVocabularyPath,
                     modelState: String(describing: engines.parakeetEngine.modelState).lowercased(),
                 ),
+                whisperCpp: .init(
+                    language: engines.whisperCpp.language,
+                    modelState: String(describing: engines.whisperCpp.modelState).lowercased(),
+                    modelDownloaded: WhisperCppModel.state() == .present,
+                    modelPath: WhisperCppModel.installedURL.path,
+                ),
             )
         }
 

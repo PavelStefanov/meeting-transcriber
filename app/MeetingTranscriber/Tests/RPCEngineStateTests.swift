@@ -158,6 +158,32 @@
             XCTAssertTrue(s.contains("\"active\""))
             XCTAssertTrue(s.contains("\"whisperKit\""))
             XCTAssertTrue(s.contains("\"parakeet\""))
+            XCTAssertTrue(s.contains("\"whisperCpp\""))
+        }
+
+        // MARK: - whisper.cpp engine
+
+        /// An A/B/C comparison driven over `/v1/transcribe` needs to tell the
+        /// three engines apart from evidence rather than from what it thinks it
+        /// configured: which engine is active, which language the decode will
+        /// be pinned to, and whether the 2.9 GB model is actually on disk.
+        func test_snapshot_reportsWhisperCppEngineState() {
+            settings.transcriptionEngine = .whisperCpp
+            settings.whisperLanguage = "ru"
+            let state = AppState(settings: settings)
+
+            let engines = state.rpcStateSnapshot().engines
+            XCTAssertEqual(engines.active, .whisperCpp)
+            XCTAssertEqual(engines.whisperCpp.language, "ru")
+            XCTAssertEqual(engines.whisperCpp.modelState, "unloaded")
+            XCTAssertTrue(engines.whisperCpp.modelPath.hasSuffix("ggml-large-v3.bin"), engines.whisperCpp.modelPath)
+        }
+
+        func test_snapshot_whisperCppLanguageIsNilOnAutoDetect() {
+            settings.transcriptionEngine = .whisperCpp
+            settings.whisperLanguage = ""
+            let state = AppState(settings: settings)
+            XCTAssertNil(state.rpcStateSnapshot().engines.whisperCpp.language)
         }
 
         // MARK: - LastJob
