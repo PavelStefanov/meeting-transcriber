@@ -40,6 +40,19 @@ enum AppPaths {
         return downloads.appendingPathComponent("MeetingTranscriber")
     }()
 
+    /// whisper.cpp GGML model store: `<dataDir>/models/whisper.cpp/`.
+    ///
+    /// Under `dataDir` rather than `~/Library/Caches` on purpose: the full
+    /// large-v3 weights are ~2.9 GB, and a cache directory is a place macOS is
+    /// entitled to empty under disk pressure. It is also not the two existing
+    /// model stores — WhisperKit downloads into its own Hugging Face directory
+    /// and FluidAudio into `FluidAudio/Models` — because neither exposes a hook
+    /// for a foreign artifact, and putting ours beside theirs would only make
+    /// three owners of one directory.
+    static let whisperCppModelsDir = dataDir
+        .appendingPathComponent("models")
+        .appendingPathComponent("whisper.cpp")
+
     /// Speaker voice profiles DB.
     static let speakersDB = dataDir.appendingPathComponent("speakers.json")
 
