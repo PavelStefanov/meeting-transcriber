@@ -280,6 +280,7 @@
             let active: TranscriptionEngineSetting
             let whisperKit: WhisperKit
             let parakeet: Parakeet
+            let whisperCpp: WhisperCpp
 
             // `modelState` (stringified `EngineModelState`, e.g. "unloaded"/"loaded")
             // lets driver scripts wait for model preload before measuring —
@@ -297,10 +298,26 @@
                 let modelState: String
             }
 
+            /// Reported so an A/B/C comparison driven over `/v1/transcribe` can
+            /// tell the three engines apart in evidence rather than by
+            /// assumption: which model file is on disk, whether it is loaded,
+            /// and which language the decode will actually be pinned to.
+            struct WhisperCpp: Codable {
+                /// `nil` = auto-detect, matching `language: nil` on the engine.
+                let language: String?
+                let modelState: String
+                /// Whether the pinned GGML file is installed. Size-only check,
+                /// the same one the engine loads on — NOT a digest
+                /// verification, which happens once at install time.
+                let modelDownloaded: Bool
+                let modelPath: String
+            }
+
             static let empty = Self(
                 active: .whisperKit,
                 whisperKit: .init(modelVariant: "", language: nil, modelState: ""),
                 parakeet: .init(customVocabularyPath: "", modelState: ""),
+                whisperCpp: .init(language: nil, modelState: "", modelDownloaded: false, modelPath: ""),
             )
         }
 
@@ -351,7 +368,8 @@
             }
 
             struct Transcription: Codable {
-                /// `TranscriptionEngineSetting` raw value ("whisperKit" | "parakeet").
+                /// `TranscriptionEngineSetting` raw value
+                /// ("whisperKit" | "parakeet" | "whisperCpp").
                 let engine: String
                 let whisperKitModel: String
                 /// Empty string = auto-detect (mirrors the UserDefaults sentinel).
