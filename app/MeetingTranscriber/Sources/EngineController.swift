@@ -4,7 +4,7 @@ import Observation
 // MARK: - EngineController
 
 /// Owns the transcription-engine concern: the engine instances
-/// (`WhisperKitEngine`, `ParakeetEngine`),
+/// (`WhisperKitEngine`, `ParakeetEngine`, `WhisperCppEngine`),
 /// the active-engine selection, and keeping each engine's model / language /
 /// vocabulary in line with `AppSettings` (both an up-front sync at construction
 /// and a self-rearming reactive observer for runtime changes).
@@ -26,6 +26,7 @@ import Observation
 final class EngineController {
     let whisperKit: WhisperKitEngine
     let parakeetEngine: ParakeetEngine
+    let whisperCpp: WhisperCppEngine
 
     private let settings: AppSettings
 
@@ -48,11 +49,16 @@ final class EngineController {
         ParakeetEngine()
     }
 
+    private static func makeWhisperCpp() -> WhisperCppEngine {
+        WhisperCppEngine()
+    }
+
     init(settings: AppSettings, warmupQueue: ModelWarmupQueue = ModelWarmupQueue()) {
         self.settings = settings
         self.warmupQueue = warmupQueue
         self.whisperKit = Self.makeWhisperKit()
         self.parakeetEngine = Self.makeParakeet()
+        self.whisperCpp = Self.makeWhisperCpp()
 
         // Bring engines in line with the current settings up front so the first
         // transcription doesn't run against stale defaults, then start observing
@@ -69,6 +75,9 @@ final class EngineController {
 
         case .whisperKit:
             whisperKit
+
+        case .whisperCpp:
+            whisperCpp
         }
     }
 
@@ -113,6 +122,15 @@ final class EngineController {
             if parakeetEngine.customVocabularyBookmark != nextBookmark { parakeetEngine.customVocabularyBookmark = nextBookmark }
             let nextLang = settings.parakeetLanguageOrNil
             if parakeetEngine.language != nextLang { parakeetEngine.language = nextLang }
+
+        case .whisperCpp:
+            // The same `whisperLanguage` setting WhisperKit reads. No custom
+            // vocabulary: whisper.cpp exposes `initial_prompt`, but the app's
+            // measured result for a Whisper decoder prompt was a large WER
+            // regression (see the help text on the WhisperKit vocabulary
+            // toggle), and Meetily passes no prompt either.
+            let nextLang = settings.whisperLanguageOrNil
+            if whisperCpp.language != nextLang { whisperCpp.language = nextLang }
         }
     }
 
