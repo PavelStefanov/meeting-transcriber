@@ -432,7 +432,13 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
     }
 
     /// Remove Whisper special tokens like <|startoftranscript|>, <|en|>, <|0.00|>, etc.
-    static func stripWhisperTokens(_ text: String) -> String {
+    ///
+    /// `nonisolated` because it is a pure transform of its argument: it reads no
+    /// stored property and the class's `@MainActor` would otherwise be inherited
+    /// by this static too. `WhisperCppSegmentBuilder.segments` is deliberately a
+    /// pure, off-actor mapping and shares this exact stripping, so the isolation
+    /// has to come off the helper rather than be forced onto that caller.
+    nonisolated static func stripWhisperTokens(_ text: String) -> String {
         text.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression)
     }
 }
