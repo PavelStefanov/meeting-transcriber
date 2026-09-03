@@ -158,9 +158,16 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
             modelState = .downloading
             downloadProgress = 0
             do {
-                // Step 1: Download with progress tracking
+                // Step 1: Download with progress tracking.
+                //
+                // `downloadBase` is passed rather than left at WhisperKit's
+                // default of `~/Documents/huggingface` — see
+                // `AppPaths.whisperKitModelsDir`. Without it a build lacking
+                // Files-and-Folders access fails here with a permission error
+                // that presents itself as a corrupt model.
                 let modelFolder = try await WhisperKit.download(
                     variant: variant,
+                    downloadBase: AppPaths.whisperKitModelsDir,
                 ) { progress in
                     Task { @MainActor in
                         self.downloadProgress = progress.fractionCompleted
@@ -173,7 +180,14 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
                 pipe = try await WhisperKit(
                     WhisperKitConfig(
                         model: variant,
-                        modelFolder: modelFolder.path(),
+                        // `percentEncoded: false` because this is a filesystem
+                        // path, not a URL component. `URL.path()` encodes by
+                        // default, so a directory containing a space arrives as
+                        // "Application%20Support" and the load fails with
+                        // "Model file not found" pointing at a path that plainly
+                        // exists. Harmless while the models lived under
+                        // `~/Documents/huggingface`, which has no spaces in it.
+                        modelFolder: modelFolder.path(percentEncoded: false),
                     ),
                 )
                 modelState = .loaded
