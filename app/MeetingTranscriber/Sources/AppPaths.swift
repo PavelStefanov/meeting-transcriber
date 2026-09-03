@@ -55,15 +55,21 @@ enum AppPaths {
 
     /// WhisperKit model store: `<dataDir>/models/whisperkit/`.
     ///
-    /// Passed to `WhisperKit.download` as its download base, because the
-    /// default is `~/Documents/huggingface` and that is the wrong place twice
-    /// over. `~/Documents` is TCC-protected, so a build that has not been
-    /// granted Files-and-Folders access cannot write there and the model load
-    /// fails with a permission error that reads like a corrupt download
-    /// ("Could not remove corrupted metadata file … you don't have permission
-    /// to access it"). And it is the user's own document space, frequently
-    /// iCloud-synced, which is no place for 1.5 GB of weights the app manages
-    /// on its own.
+    /// Passed to WhisperKit as its download base, because the default is
+    /// `~/Documents/huggingface`: the user's own document space, frequently
+    /// iCloud-synced, holding gigabytes of weights the app manages by itself —
+    /// 6.4 GB across four variants on the machine this was found on. That is
+    /// the whole justification, and it is enough.
+    ///
+    /// It is NOT justified by TCC. `~/Documents` is a protected location, and a
+    /// load failure there did read like one ("Could not remove corrupted
+    /// metadata file … you don't have permission to access it"), which is what
+    /// first sent this change in. But the app turned out to write into
+    /// `~/Documents` perfectly well — the tokenizer landed there on the very
+    /// next run — so that diagnosis was wrong. The load failure was a bad
+    /// on-disk state in the old cache, and what actually fixed it was moving
+    /// away from that state plus the percent-encoding bug in `WhisperKitEngine`
+    /// that this move exposed.
     ///
     /// Under `dataDir` for the same reason as `whisperCppModelsDir`, and beside
     /// it rather than inside it: two engines, two stores, one owner each.
