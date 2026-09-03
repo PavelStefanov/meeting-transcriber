@@ -124,6 +124,28 @@ Use the `/git-workflow` skill. Commit proactively after every logical unit of wo
   - Default to `.local/` for ad-hoc notes, diagnostic dumps, and active finding-trackers; promote to committed `docs/plans/` only when the plan is shared reference material
   - **Never reference `.local/` content in shared artifacts** (PR descriptions, commit messages, code comments, in-app UI, GitHub issues): no file paths under `.local/`, no internal task identifiers like P4/P6/B22/H1/L6, no internal PR-internal nicknames. Reviewers don't see those. Inline the relevant content instead, or describe in plain language. The same applies to chat replies framed as PR/commit-ready text.
 
+- **Never put recording content anywhere git can see it.** No transcript text,
+  no quoted utterance, no participant name, no topic of a real meeting — not in
+  a committed file, a code comment, a doc comment, a commit message, a PR title
+  or body, a test fixture, or an issue. Not even a single word, and not even to
+  illustrate a bug it demonstrates perfectly. This has already happened once:
+  measurement notes quoted verbatim words out of a private meeting and named
+  what the meeting was about, and it took a history rewrite to remove them.
+  - Applies equally to audio, transcripts and reference material from other
+    tools. Keep them outside the working tree, or under `docs/plans/.local/`;
+    for a folder that is temporary, prefer `.git/info/exclude` over `.gitignore`
+    so its very name leaves no trace in the repository.
+  - When a real recording is what revealed a defect, commit the **class** of
+    the defect — "a word came back split in half", "a substitution impossible
+    in context" — plus the numbers. That is what a reader needs, and it is
+    reproducible from the local transcript without publishing it.
+  - Synthetic strings invented for a test are fine, in any language. The line
+    is provenance, not alphabet.
+  - Before pushing anything derived from a real recording, check:
+    `git ls-files -z | xargs -0 grep -l <a distinctive word>` and
+    `git log --format=%B <base>..HEAD | grep <it>`. A tracked file is easy to
+    fix; a commit message needs history rewritten.
+
 ## Architecture Notes
 
 **Transcription engines:**
