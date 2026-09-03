@@ -139,10 +139,15 @@ enum SpeechChunkPlanner {
     /// A region boundary is silence by construction, so it never lands inside a
     /// word. An interior split does: `plan` divides an over-long region evenly,
     /// which is arithmetic and knows nothing about the audio, so the cut falls
-    /// wherever it falls. Observed twice in real output as a word returned in
-    /// two halves — where each half decoded separately and joining them
-    /// inserted a space inside a word. On the 137 s sample this fires for real:
+    /// wherever it falls. Observed in real output as a word returned in
+    /// two halves with a space between them, each half decoded on its own side
+    /// of the cut; moving the cut fixed it. On the 137 s sample this fires for real:
     /// 5 speech regions became 7 chunks, so two cuts were made blind.
+    ///
+    /// It is NOT the cause of every such artifact. One survived a
+    /// recording on which no over-long region was split at all — its regions
+    /// averaged 8 s — so that one comes from the decoder's own tokenisation,
+    /// not from a cut, and no chunk placement can fix it.
     ///
     /// Only splits between chunks that actually touch are moved, so a real
     /// pause between two regions is never dragged; and the movement is clamped
