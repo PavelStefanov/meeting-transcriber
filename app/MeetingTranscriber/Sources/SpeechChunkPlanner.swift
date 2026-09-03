@@ -33,6 +33,30 @@ enum SpeechChunkPlanner {
     /// reintroduce the multi-window behaviour this planner exists to avoid.
     static let maxChunkSeconds: TimeInterval = 30
 
+    /// Length a chunk is grown towards by merging neighbours before it is
+    /// decoded.
+    ///
+    /// A chunk that is too SHORT costs accuracy, which is the mirror image of
+    /// the problem chunking solves and was only visible once WER was measured
+    /// per fixture: on a synthetic fixture whose turns are ~4 s apart, the
+    /// split produced 4 s chunks and WER went from 0.179 (whole file) to 0.500,
+    /// with substitutions tripling — the decoder had no context left to
+    /// disambiguate against. On the real overlapping meeting, where regions
+    /// average around 8 s, chunking instead improved WER to 0.266 from 0.311.
+    /// 8 s is that working range, and merging only ever moves a chunk towards
+    /// it.
+    static let targetChunkSeconds: TimeInterval = 8
+
+    /// Longest pause merged across while growing a chunk.
+    ///
+    /// A short pause inside a chunk is harmless — the decoder handles internal
+    /// silence, and the chunk still begins and ends where speech does. A long
+    /// one is not: bridging it would pack dead air into the decode and hand
+    /// back one segment covering two conversational turns, which is worse for
+    /// speaker attribution than a short chunk. So merging follows the
+    /// conversation's own rhythm rather than a target length at any cost.
+    static let maxBridgedGapSeconds: TimeInterval = 1.0
+
     /// Shortest chunk worth decoding on its own.
     ///
     /// Below this a region is almost always a breath or a click that VAD let
@@ -41,6 +65,26 @@ enum SpeechChunkPlanner {
     /// rather than merged into a neighbour: merging would bridge a real pause
     /// and hand the decoder the boundary it mishandles.
     static let minChunkSeconds: TimeInterval = 0.2
+
+    /// Whether a recording of `duration` is long enough for chunking to be
+    /// worth anything.
+    ///
+    /// Below one decode window there is nothing to win and something to lose.
+    /// A recording that fits in a single window IS already decoded in one pass
+    /// with the whole file as context: no window advance, so no timestamp token
+    /// to mispredict, so none of the repetition this planner exists to prevent.
+    /// Splitting it only takes context away, and WER says so — measured per
+    /// fixture, whole-file against chunked:
+    ///
+    ///   17.0 s (one window)     0.179  vs  0.357
+    ///   29.8 s (one window)     0.283  vs  0.321
+    ///   93.8 s (four windows)   0.311  vs  0.260
+    ///
+    /// The sign flips exactly at the window boundary, which is the mechanism
+    /// rather than a coincidence, so that is where the gate sits.
+    static func shouldChunk(duration: TimeInterval) -> Bool {
+        duration > maxChunkSeconds
+    }
 
     /// Split `regions` so no chunk exceeds `maxChunkSeconds`.
     ///
@@ -56,7 +100,7 @@ enum SpeechChunkPlanner {
     ) -> [SpeechRegion] {
         guard maxChunkSeconds > 0 else { return [] }
         var chunks: [SpeechRegion] = []
-        for region in regions {
+        for region in merged(regions, maxChunkSeconds: maxChunkSeconds) {
             let duration = region.duration
             guard duration >= minChunkSeconds else { continue }
             if duration <= maxChunkSeconds {
@@ -77,6 +121,42 @@ enum SpeechChunkPlanner {
             }
         }
         return chunks
+    }
+
+    /// Grow short regions into neighbours so the decoder gets enough audio to
+    /// disambiguate against.
+    ///
+    /// Runs before the split, not after: merging first and splitting second
+    /// means a run of short turns becomes one well-sized chunk, while the split
+    /// still guarantees nothing exceeds a decode window. Doing it the other way
+    /// round could re-join parts the split had just separated.
+    ///
+    /// Only pauses up to `maxBridgedGapSeconds` are crossed, and growth stops
+    /// as soon as the chunk reaches `targetChunkSeconds` — so a chunk gets
+    /// context without swallowing a turn boundary it has no reason to.
+    private static func merged(
+        _ regions: [SpeechRegion],
+        maxChunkSeconds: TimeInterval,
+    ) -> [SpeechRegion] {
+        var out: [SpeechRegion] = []
+        for region in regions {
+            guard let open = out.last else {
+                out.append(region)
+                continue
+            }
+            let gap = region.start - open.end
+            let grown = region.end - open.start
+            let joinable = open.duration < targetChunkSeconds
+                && gap >= 0
+                && gap <= maxBridgedGapSeconds
+                && grown <= maxChunkSeconds
+            if joinable {
+                out[out.count - 1] = SpeechRegion(start: open.start, end: region.end)
+            } else {
+                out.append(region)
+            }
+        }
+        return out
     }
 
     /// Sample range of `chunk` in a buffer at `sampleRate`, clamped to
