@@ -146,12 +146,11 @@ final class WhisperCppRunner: @unchecked Sendable {
         var params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH)
         Self.apply(config, to: &params)
 
-        let status: Int32
-        if let language {
+        let status: Int32 = if let language {
             // The C string only has to outlive the call: whisper.cpp reads
             // `params.language` during `whisper_full` and keeps no reference to
             // it afterwards.
-            status = language.withCString { code in
+            language.withCString { code in
                 params.language = code
                 return whisper_full(context, params, samples, Int32(samples.count))
             }
@@ -161,7 +160,7 @@ final class WhisperCppRunner: @unchecked Sendable {
             // `detect_language = true` makes `whisper_full` detect and
             // `return 0` immediately with zero segments, which is not what
             // "auto" means anywhere in this app.
-            status = whisper_full(context, params, samples, Int32(samples.count))
+            whisper_full(context, params, samples, Int32(samples.count))
         }
 
         guard status == 0 else { throw WhisperCppEngineError.decodeFailed(status: Int(status)) }
