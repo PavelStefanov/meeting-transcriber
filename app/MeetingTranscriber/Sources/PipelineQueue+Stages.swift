@@ -248,8 +248,13 @@ extension PipelineQueue {
             jobID: ctx.jobID, appURL: app16k, micURL: mic16k, micDelay: ctx.micDelay,
         )
 
-        let appSegments = try await engine.transcribeSegments(audioPath: app16k)
-        let micSegments = try await engine.transcribeSegments(audioPath: mic16k)
+        // Both tracks go through the same track-level entry point as a
+        // single-source mix, so a chunked engine decodes a recorded meeting the
+        // same way it decodes an import. This is the normal recording topology,
+        // so leaving it on the whole-file path would have meant the defects
+        // chunking fixes survived for exactly the case the app exists for.
+        let appSegments = try await transcribeTrack(app16k, engine: engine)
+        let micSegments = try await transcribeTrack(mic16k, engine: engine)
 
         // On an affected recording, work out which microphone segments are only
         // the loudspeaker coming back, so the merge can leave them out of the
@@ -322,33 +327,27 @@ extension PipelineQueue {
             let mix16k = workDir.appendingPathComponent("mix_16k.wav")
             try await AudioMixer.resampleFile(from: mixPath, to: mix16k)
 
-            // Optional VAD preprocessing: trim silence before transcription
-            var vadMap: VadSegmentMap?
-            let transcriptionPath: URL
-            if vadConfig != nil, let vadResult = try await preprocessWithVAD(audioPath: mix16k, workDir: workDir) {
-                transcriptionPath = vadResult.trimmedPath
-                vadMap = vadResult.map
-            } else {
-                transcriptionPath = mix16k
-            }
-
-            // A chunk-batch engine gets the speech regions themselves, decoded
-            // one at a time off the ORIGINAL audio — not the concatenated
-            // trimmed file. Trimming solves the wrong half of the problem: it
-            // removes the silence but still hands over one long stream, and the
-            // stream is what makes the decoder drop punctuation and repeat
-            // itself (see `SpeechChunkPlanner`). Timestamps then come from the
-            // regions, so there is nothing to remap.
-            // Gated on length: a recording inside one decode window is already
-            // one pass with full context, so chunking it only removes context.
-            // See `SpeechChunkPlanner.shouldChunk`.
             var segments: [TimestampedSegment]
-            if let map = vadMap, let chunked = engine as? any ChunkedTranscribingEngine,
-               SpeechChunkPlanner.shouldChunk(duration: map.originalDuration) {
-                let chunks = SpeechChunkPlanner.plan(regions: map.segments)
-                let rawSegments = try await chunked.transcribeChunks(audioPath: mix16k, chunks: chunks)
-                segments = normalize(rawSegments, with: normalizer)
+            if engine is any ChunkedTranscribingEngine {
+                // A chunked engine decodes the ORIGINAL audio region by region,
+                // so trimming is skipped entirely rather than computed and
+                // discarded: concatenating the speech into one stream solves
+                // the wrong half of the problem, removing the silence but still
+                // handing over a stream. Timestamps come from the regions, so
+                // there is nothing to remap either.
+                segments = try await normalize(transcribeTrack(mix16k, engine: engine), with: normalizer)
             } else {
+                // Optional VAD preprocessing: trim silence before transcription
+                var vadMap: VadSegmentMap?
+                let transcriptionPath: URL
+                if vadConfig != nil,
+                   let vadResult = try await preprocessWithVAD(audioPath: mix16k, workDir: workDir) {
+                    transcriptionPath = vadResult.trimmedPath
+                    vadMap = vadResult.map
+                } else {
+                    transcriptionPath = mix16k
+                }
+
                 // Use transcribeSegments to cache results for diarization
                 let rawSegments = try await engine.transcribeSegments(audioPath: transcriptionPath)
                 segments = normalize(rawSegments, with: normalizer)
@@ -809,6 +808,63 @@ extension PipelineQueue {
 
     /// Run VAD on a 16kHz audio file. Returns trimmed audio path and segment map,
     /// or nil if no speech regions are detected.
+    /// VAD threshold used when regions are needed for chunk planning but the
+    /// user has VAD switched off, so there is no `vadConfig` to read one from.
+    /// The same default the setting itself carries — this is not a second
+    /// tunable, just the value that has to exist when the first one is absent.
+    private static let chunkPlanningVadThreshold: Float = 0.5
+
+    /// Transcribe one 16 kHz track, chunked when the engine decodes chunks and
+    /// the recording is long enough to need it.
+    ///
+    /// Deliberately NOT gated on the user's VAD setting. Speech regions are an
+    /// input this decoder needs in order to produce a correct transcript, not a
+    /// preference about trimming silence: handed a whole recording the
+    /// whisper.cpp path loses its punctuation and repeats itself, measured in
+    /// `docs/plans/whispercpp-decode-framing.md`. Gating chunking on
+    /// `vadEnabled` — off by default — would have meant selecting the engine
+    /// delivered exactly the transcript that engine was reshaped to avoid.
+    /// `vadEnabled` therefore keeps meaning only what it says: whether silence
+    /// is trimmed for engines that decode a stream.
+    ///
+    /// Falls back to a whole-file decode on every path where chunking cannot
+    /// help or cannot be planned — a non-chunked engine, a recording inside one
+    /// decode window, no speech found, or a VAD failure. A failure here must
+    /// not fail the job: the whole-file decode is worse, not broken.
+    private func transcribeTrack(
+        _ audioPath: URL,
+        engine: any TranscribingEngine,
+    ) async throws -> [TimestampedSegment] {
+        guard let chunked = engine as? any ChunkedTranscribingEngine else {
+            return try await engine.transcribeSegments(audioPath: audioPath)
+        }
+        guard let map = try? await speechRegions(of: audioPath),
+              SpeechChunkPlanner.shouldChunk(duration: map.originalDuration)
+        else {
+            return try await engine.transcribeSegments(audioPath: audioPath)
+        }
+        let chunks = SpeechChunkPlanner.plan(regions: map.segments)
+        guard !chunks.isEmpty else {
+            logger.info("VAD found no speech to chunk — decoding the whole track")
+            return try await engine.transcribeSegments(audioPath: audioPath)
+        }
+        return try await chunked.transcribeChunks(audioPath: audioPath, chunks: chunks)
+    }
+
+    /// Speech regions for chunk planning, on the track's own timeline.
+    ///
+    /// Reuses the queue's cached `FluidVAD` so a chunked job pays the model
+    /// load once per process rather than once per track.
+    private func speechRegions(of audioPath: URL) async throws -> VadSegmentMap {
+        let instance = vad ?? {
+            let created = FluidVAD(threshold: vadConfig?.threshold ?? Self.chunkPlanningVadThreshold)
+            vad = created
+            return created
+        }()
+        let (samples, _) = try await AudioMixer.loadAudioAsFloat32(url: audioPath)
+        return try await instance.detectSpeech(samples: samples)
+    }
+
     private func preprocessWithVAD(audioPath: URL, workDir: URL) async throws
         -> (trimmedPath: URL, map: VadSegmentMap)? {
         guard let vadConfig else { return nil }
