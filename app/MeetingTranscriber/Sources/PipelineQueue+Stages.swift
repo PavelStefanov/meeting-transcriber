@@ -332,13 +332,27 @@ extension PipelineQueue {
                 transcriptionPath = mix16k
             }
 
-            // Use transcribeSegments to cache results for diarization
-            let rawSegments = try await engine.transcribeSegments(audioPath: transcriptionPath)
-            var segments = normalize(rawSegments, with: normalizer)
+            // A chunk-batch engine gets the speech regions themselves, decoded
+            // one at a time off the ORIGINAL audio — not the concatenated
+            // trimmed file. Trimming solves the wrong half of the problem: it
+            // removes the silence but still hands over one long stream, and the
+            // stream is what makes the decoder drop punctuation and repeat
+            // itself (see `SpeechChunkPlanner`). Timestamps then come from the
+            // regions, so there is nothing to remap.
+            var segments: [TimestampedSegment]
+            if let map = vadMap, let chunked = engine as? any ChunkedTranscribingEngine {
+                let chunks = SpeechChunkPlanner.plan(regions: map.segments)
+                let rawSegments = try await chunked.transcribeChunks(audioPath: mix16k, chunks: chunks)
+                segments = normalize(rawSegments, with: normalizer)
+            } else {
+                // Use transcribeSegments to cache results for diarization
+                let rawSegments = try await engine.transcribeSegments(audioPath: transcriptionPath)
+                segments = normalize(rawSegments, with: normalizer)
 
-            // Remap timestamps back to original timeline if VAD was used
-            if let map = vadMap {
-                segments = map.remapTimestamps(segments)
+                // Remap timestamps back to original timeline if VAD was used
+                if let map = vadMap {
+                    segments = map.remapTimestamps(segments)
+                }
             }
 
             cachedSegments = segments
