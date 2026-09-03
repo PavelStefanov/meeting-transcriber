@@ -339,8 +339,12 @@ extension PipelineQueue {
             // stream is what makes the decoder drop punctuation and repeat
             // itself (see `SpeechChunkPlanner`). Timestamps then come from the
             // regions, so there is nothing to remap.
+            // Gated on length: a recording inside one decode window is already
+            // one pass with full context, so chunking it only removes context.
+            // See `SpeechChunkPlanner.shouldChunk`.
             var segments: [TimestampedSegment]
-            if let map = vadMap, let chunked = engine as? any ChunkedTranscribingEngine {
+            if let map = vadMap, let chunked = engine as? any ChunkedTranscribingEngine,
+               SpeechChunkPlanner.shouldChunk(duration: map.originalDuration) {
                 let chunks = SpeechChunkPlanner.plan(regions: map.segments)
                 let rawSegments = try await chunked.transcribeChunks(audioPath: mix16k, chunks: chunks)
                 segments = normalize(rawSegments, with: normalizer)
