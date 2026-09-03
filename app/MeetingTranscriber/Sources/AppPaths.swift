@@ -53,6 +53,24 @@ enum AppPaths {
         .appendingPathComponent("models")
         .appendingPathComponent("whisper.cpp")
 
+    /// WhisperKit model store: `<dataDir>/models/whisperkit/`.
+    ///
+    /// Passed to `WhisperKit.download` as its download base, because the
+    /// default is `~/Documents/huggingface` and that is the wrong place twice
+    /// over. `~/Documents` is TCC-protected, so a build that has not been
+    /// granted Files-and-Folders access cannot write there and the model load
+    /// fails with a permission error that reads like a corrupt download
+    /// ("Could not remove corrupted metadata file … you don't have permission
+    /// to access it"). And it is the user's own document space, frequently
+    /// iCloud-synced, which is no place for 1.5 GB of weights the app manages
+    /// on its own.
+    ///
+    /// Under `dataDir` for the same reason as `whisperCppModelsDir`, and beside
+    /// it rather than inside it: two engines, two stores, one owner each.
+    static let whisperKitModelsDir = dataDir
+        .appendingPathComponent("models")
+        .appendingPathComponent("whisperkit")
+
     /// Speaker voice profiles DB.
     static let speakersDB = dataDir.appendingPathComponent("speakers.json")
 
