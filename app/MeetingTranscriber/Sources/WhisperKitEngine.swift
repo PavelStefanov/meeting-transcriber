@@ -161,10 +161,11 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
                 // Step 1: Download with progress tracking.
                 //
                 // `downloadBase` is passed rather than left at WhisperKit's
-                // default of `~/Documents/huggingface` — see
-                // `AppPaths.whisperKitModelsDir`. Without it a build lacking
-                // Files-and-Folders access fails here with a permission error
-                // that presents itself as a corrupt model.
+                // default of `~/Documents/huggingface`, which is the user's
+                // document space and no place for gigabytes of weights — see
+                // `AppPaths.whisperKitModelsDir`, which also records why the
+                // permission-shaped error that prompted this was NOT the
+                // reason.
                 let modelFolder = try await WhisperKit.download(
                     variant: variant,
                     downloadBase: AppPaths.whisperKitModelsDir,
@@ -180,6 +181,15 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
                 pipe = try await WhisperKit(
                     WhisperKitConfig(
                         model: variant,
+                        // Also here, not only on `download` above: the weights
+                        // come from `modelFolder` below, but the TOKENIZER is
+                        // fetched separately and lands under `downloadBase`,
+                        // which defaults to `~/Documents/huggingface`. Passing
+                        // only the download base moved the gigabytes and left a
+                        // few megabytes of tokenizer JSON still being written
+                        // into the user's documents — found by looking, after
+                        // the folder reappeared once the engine had run.
+                        downloadBase: AppPaths.whisperKitModelsDir,
                         // `percentEncoded: false` because this is a filesystem
                         // path, not a URL component. `URL.path()` encodes by
                         // default, so a directory containing a space arrives as
