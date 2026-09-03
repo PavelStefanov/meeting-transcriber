@@ -53,8 +53,8 @@ final class WhisperCppEngineWiringTests: XCTestCase {
         XCTAssertTrue(label.contains("Large V3"), label)
         XCTAssertTrue(label.contains("whisper.cpp"), label)
         XCTAssertTrue(
-            label.contains("2.9 GB"), label,
-            "the size in the label is what makes the download an informed choice instead of a dialog",
+            label.contains("2.9 GB"),
+            "the size in the label is what makes the download an informed choice instead of a dialog: \(label)",
         )
     }
 
@@ -121,8 +121,8 @@ final class WhisperCppEngineWiringTests: XCTestCase {
     func test_controller_selectsTheWhisperCppEngineWhenItIsActive() {
         settings.transcriptionEngine = .whisperCpp
         let engines = EngineController(settings: settings)
-        XCTAssertTrue(
-            engines.activeTranscriptionEngine === engines.whisperCpp,
+        XCTAssertIdentical(
+            engines.activeTranscriptionEngine, engines.whisperCpp,
             "the pipeline transcribes through activeTranscriptionEngine and nothing else",
         )
     }
