@@ -191,3 +191,88 @@ final class WhisperCppEngine: TranscribingEngine {
         return leveled
     }
 }
+
+/// Chunk-at-a-time decoding, the framing the reference pipeline uses.
+///
+/// Same model, same weights, same `WhisperCppDecodingConfig` as
+/// `transcribeSegments` — only the shape of the input differs, and that is
+/// what the measurement says the quality hangs on. `SpeechChunkPlanner` carries
+/// the numbers.
+///
+/// In this file and not a `+Chunked` one because the members it drives
+/// (`runner`, `ensureModel`, the idle-unload pair, `transcriptionProgress`'s
+/// setter) are deliberately `private`, and Swift's `private` is file-scoped.
+/// Widening them to satisfy a file split would trade real encapsulation for
+/// layout.
+extension WhisperCppEngine: ChunkedTranscribingEngine {
+    /// Decode each chunk on its own and take its timing from the chunk rather
+    /// than from the decoder.
+    ///
+    /// This is what lets the path set `no_timestamps`, the one flag this app
+    /// deliberately diverged on. The reference pipeline sets it and reads
+    /// timing off its own chunk offsets; the divergence existed only because
+    /// whole-file decoding has no other source of per-utterance timing. Handed
+    /// VAD regions it does have one, and a better-bounded one: a region marks
+    /// where speech actually stopped, a timestamp token only predicts it.
+    ///
+    /// `meetilyParity` is untouched — the flags move on a local copy, because
+    /// that literal records a measured configuration and is not a scratch pad.
+    func transcribeChunks(audioPath: URL, chunks: [SpeechRegion]) async throws -> [TimestampedSegment] {
+        try await ensureModel()
+        cancelIdleUnload()
+        transcriptionProgress = 0
+        defer { scheduleIdleUnload() }
+
+        let samples = try await Task.detached(priority: .userInitiated) {
+            try await Self.prepareSamples(at: audioPath)
+        }.value
+        guard !samples.isEmpty, !chunks.isEmpty else {
+            transcriptionProgress = 1
+            return []
+        }
+
+        var config = decodingConfig
+        // One window per chunk, so there is no timestamp token to read and none
+        // to get wrong — which is the failure that makes the whole-file path
+        // repeat itself.
+        config.noTimestamps = true
+        // A chunk is one utterance; asking for a single segment stops the
+        // decoder splitting it on punctuation it has just invented.
+        config.singleSegment = true
+
+        let code = WhisperCppRunner.supportedLanguage(WhisperCppLanguage.code(for: language))
+        let rate = AudioConstants.targetSampleRate
+        var out: [TimestampedSegment] = []
+        out.reserveCapacity(chunks.count)
+
+        for (index, chunk) in chunks.enumerated() {
+            guard let range = SpeechChunkPlanner.sampleRange(
+                for: chunk, sampleRate: rate, sampleCount: samples.count,
+            ) else { continue }
+
+            let raw = try await runner.transcribe(
+                samples: Array(samples[range]), language: code, config: config,
+            )
+            // The decoder's own bounds are meaningless with `no_timestamps`, so
+            // only its text is used and the chunk supplies the timing. Joined
+            // because `singleSegment` makes more than one segment the
+            // exception rather than the plan.
+            let text = WhisperCppSegmentBuilder.segments(from: raw)
+                .map(\.text)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                out.append(TimestampedSegment(start: chunk.start, end: chunk.end, text: text))
+            }
+            // Real progress, which this path can finally report: the whole-file
+            // decode is one opaque call and had to settle for 0-then-1.
+            transcriptionProgress = Double(index + 1) / Double(chunks.count)
+        }
+
+        transcriptionProgress = 1
+        logger.info(
+            "whisper.cpp chunked decode: \(chunks.count, privacy: .public) chunks → \(out.count, privacy: .public) segments",
+        )
+        return out
+    }
+}
