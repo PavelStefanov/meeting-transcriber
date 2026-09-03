@@ -61,6 +61,60 @@ still hands over a single file. It removes the silence but not the stream, and
 the stream is the problem. This is a trap worth remembering: the metric that
 looks most alarming (repetition) is fixed, so the change looks successful.
 
+
+## Measured against the reference pipeline
+
+Two Russian recordings, both decoded by the reference pipeline (Meetily)
+through the same engine and model, so the comparison isolates framing.
+
+A 29.8-minute meeting:
+
+| | this app | reference |
+|---|---|---|
+| words | 3667 | 3430 |
+| repeated 8-grams | 0 | 0 |
+| punctuation /100 words | 27.1 | 24.6 |
+| capitals | 509 | 431 |
+| speaker attribution | yes, 43 turns | none — its output carries no speaker field |
+
+Word-level alignment of the two transcripts, which is the part that says
+something about recognition rather than formatting:
+
+| | words |
+|---|---|
+| agreed | 2832 |
+| **only this app** — speech the reference missed | **243** (15 runs of 4+ words) |
+| only the reference — speech this app missed | 74 (5 runs) |
+| substituted | 449 / 513 |
+
+So 3.3x more speech recovered than lost. Whole utterances the reference
+dropped entirely include greetings and several complete exchanges.
+
+Among the substitutions, the cases where meaning decides went to this app in
+every instance checked: the reference returned words that were impossible in
+context — a homophone of the right word, carrying an unrelated sense — where
+this app returned the one the sentence required. Four such pairs were verified
+by hand. The reference wins a smaller number of spots, and this app still
+returns the occasional word split in half by a space.
+
+A 2:17 interview clip, where an independent third transcript (YouTube's
+auto-captions) is also available:
+
+| | divergence from reference | divergence from third-party |
+|---|---|---|
+| this app | 0.101 | **0.210** |
+| reference | — | 0.224 |
+
+Being closer to an unrelated system than the reference is weak evidence of
+being closer to the truth. It is not proof, and neither of those transcripts
+is ground truth.
+
+**Read these numbers as divergence, not error.** No hand-verified Russian
+reference exists, so nothing here measures accuracy directly. Word counts,
+punctuation density and repetition are objective; who is right in a given
+substitution was judged by semantic plausibility, sampled rather than
+exhaustive.
+
 ## Chunk sizing: the mirror-image fault
 
 Chunking introduced the opposite failure — a chunk can be too *short*, leaving
@@ -130,8 +184,15 @@ places a segment at 00:14, matching the whole-file baseline's 00:13.
   project's quality fixtures are German and English. A Russian fixture needs a
   hand-verified reference; generating one would compare against another engine's
   hypothesis rather than against truth.
-- **Whether VAD should be forced on for this engine**, or the engine withheld
-  until it is. A product decision, not a technical one.
+- **`targetChunkSeconds` is fitted, not derived.** 8 s came from the region
+  average of the one recording where chunking helped, which is reasoning about
+  a particular file. The principled statement is "as much context as fits in a
+  window without crossing a turn boundary", and it collides with timestamp
+  granularity for diarization. Settle it by sweeping the value across the
+  fixtures and reading WER, not by picking from one observation.
+- **Word splits from the decoder itself** are untouched by chunk placement,
+  since they occur where no cut was made. They would need post-processing over
+  the decoded text.
 - **In-app model download** was interrupted twice by memory contention during
   this work and completed out of band; the in-app path is only verified as far
   as ~1.1 GB of the 2.9 GB transfer.
