@@ -11,13 +11,14 @@ enum TranscriptionEngineSetting: String, CaseIterable, Codable {
     /// Full-precision Whisper large-v3 (f16) through whisper.cpp on Metal.
     /// Appended last so the existing picker order is untouched and this is
     /// simply one more entry at the bottom of it.
-    // swiftlint:disable:next raw_value_for_camel_cased_codable_enum
-    case whisperCpp
+    case whisperCpp // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
 
     var label: String {
         switch self {
         case .whisperKit: "WhisperKit (Whisper)"
+
         case .parakeet: "Parakeet TDT v3 (NVIDIA)"
+
         // The size is in the label on purpose: choosing this entry starts a
         // 2.9 GB download, and an informed pick is what lets the model reuse
         // the existing progress display instead of needing a consent dialog of
@@ -58,6 +59,7 @@ enum TranscriptionEngineSetting: String, CaseIterable, Codable {
     var supportsLiveTranscription: Bool {
         switch self {
         case .whisperKit, .parakeet: true
+
         // `WhisperCppEngine` is batch-only and does not conform to
         // `StreamingTranscribingEngine`. This only costs captions on
         // auto-detect: with a language explicitly set, `LiveCaptionsGate`
