@@ -141,6 +141,74 @@ final class SpeechChunkPlannerTests: XCTestCase {
         XCTAssertTrue(SpeechChunkPlanner.shouldChunk(duration: 1785))
     }
 
+    // MARK: - Moving a split off a word
+
+    /// 16 kHz buffer of steady tone with a short near-silent gap centred on
+    /// `gapAt`, i.e. the shape of two words with a breath between them.
+    private func samples(seconds: Double, gapAt: Double, gapWidth: Double = 0.06) -> [Float] {
+        let rate = 16000
+        var out = [Float](repeating: 0, count: Int(seconds * Double(rate)))
+        for index in out.indices {
+            let t = Double(index) / Double(rate)
+            out[index] = abs(t - gapAt) < gapWidth / 2 ? 0.0001 : 0.5
+        }
+        return out
+    }
+
+    func test_snapSplits_movesACutOntoTheNearbyGap() {
+        // Even division would cut at 10 s, mid-word; the gap sits at 10.4 s.
+        let chunks = [SpeechRegion(start: 0, end: 10), SpeechRegion(start: 10, end: 20)]
+        let moved = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples(seconds: 20, gapAt: 10.4), sampleRate: 16000,
+        )
+        XCTAssertEqual(moved.count, 2)
+        XCTAssertEqual(moved[0].end, 10.4, accuracy: 0.05, "the cut should land in the gap")
+        XCTAssertEqual(moved[1].start, moved[0].end, "the two chunks must stay contiguous")
+        XCTAssertEqual(moved[1].end, 20, "the outer bounds are region boundaries and must not move")
+    }
+
+    func test_snapSplits_leavesACutAloneWhenNoGapIsInReach() {
+        // Gap is 5 s away, far outside the search window.
+        let chunks = [SpeechRegion(start: 0, end: 10), SpeechRegion(start: 10, end: 20)]
+        let moved = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples(seconds: 20, gapAt: 15), sampleRate: 16000,
+        )
+        XCTAssertEqual(moved[0].end, 10, accuracy: SpeechChunkPlanner.splitSearchSeconds)
+    }
+
+    func test_snapSplits_neverMovesARealPauseBetweenRegions() {
+        // These chunks do not touch: the space between them is silence VAD
+        // already found, and dragging that boundary would pull speech across it.
+        let chunks = [SpeechRegion(start: 0, end: 8), SpeechRegion(start: 12, end: 20)]
+        let moved = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples(seconds: 20, gapAt: 8.3), sampleRate: 16000,
+        )
+        XCTAssertEqual(moved[0].end, 8)
+        XCTAssertEqual(moved[1].start, 12)
+    }
+
+    func test_snapSplits_keepsBothSidesInsideADecodeWindow() {
+        // 58 s region split evenly gives 29 s halves; a search that moved the
+        // cut freely could push one side past the 30 s window.
+        let chunks = SpeechChunkPlanner.plan(regions: [SpeechRegion(start: 0, end: 58)])
+        let moved = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples(seconds: 58, gapAt: 29.7), sampleRate: 16000,
+        )
+        for chunk in moved {
+            XCTAssertLessThanOrEqual(chunk.duration, SpeechChunkPlanner.maxChunkSeconds)
+        }
+    }
+
+    func test_snapSplits_onASingleChunkChangesNothing() {
+        let chunks = [SpeechRegion(start: 0, end: 10)]
+        let moved = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples(seconds: 10, gapAt: 5), sampleRate: 16000,
+        )
+        XCTAssertEqual(moved.count, 1)
+        XCTAssertEqual(moved[0].start, 0)
+        XCTAssertEqual(moved[0].end, 10)
+    }
+
     // MARK: - sampleRange
 
     func test_sampleRange_mapsSecondsOntoTheBuffer() {

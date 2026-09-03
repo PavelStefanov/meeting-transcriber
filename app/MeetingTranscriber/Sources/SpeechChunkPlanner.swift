@@ -123,6 +123,108 @@ enum SpeechChunkPlanner {
         return chunks
     }
 
+    /// How far a split may move to find a quiet moment.
+    ///
+    /// Wide enough to reach the next gap between words at conversational pace,
+    /// narrow enough that the split stays roughly where the even division put
+    /// it and no chunk grows appreciably.
+    static let splitSearchSeconds: TimeInterval = 0.75
+
+    /// Window the loudness of a candidate split point is judged over. About one
+    /// phoneme, so a single glottal stop inside a word does not read as a gap.
+    private static let splitProbeSeconds: TimeInterval = 0.03
+
+    /// Move interior splits onto the quietest nearby moment.
+    ///
+    /// A region boundary is silence by construction, so it never lands inside a
+    /// word. An interior split does: `plan` divides an over-long region evenly,
+    /// which is arithmetic and knows nothing about the audio, so the cut falls
+    /// wherever it falls. Observed twice in real output as a word returned in
+    /// two halves — where each half decoded separately and joining them
+    /// inserted a space inside a word. On the 137 s sample this fires for real:
+    /// 5 speech regions became 7 chunks, so two cuts were made blind.
+    ///
+    /// Only splits between chunks that actually touch are moved, so a real
+    /// pause between two regions is never dragged; and the movement is clamped
+    /// so neither neighbour can cross a decode window, which is the invariant
+    /// the whole split exists to maintain.
+    ///
+    /// Pure, taking the samples as an argument rather than reading a file, so
+    /// the choice is testable against a synthetic buffer.
+    static func snapSplitsToQuietMoments(
+        _ chunks: [SpeechRegion],
+        samples: [Float],
+        sampleRate: Int,
+        maxChunkSeconds: TimeInterval = maxChunkSeconds,
+    ) -> [SpeechRegion] {
+        guard chunks.count > 1, sampleRate > 0, !samples.isEmpty else { return chunks }
+        var out = chunks
+        for index in 1 ..< out.count {
+            let previous = out[index - 1]
+            let next = out[index]
+            // Touching means `plan` cut here; a gap means speech stopped and
+            // the boundary is already in silence.
+            guard abs(next.start - previous.end) < 0.001 else { continue }
+
+            // Never let either side cross a window, and never collapse a side
+            // to nothing.
+            let earliest = max(
+                next.start - splitSearchSeconds,
+                max(previous.start + minChunkSeconds, next.end - maxChunkSeconds),
+            )
+            let latest = min(
+                next.start + splitSearchSeconds,
+                min(next.end - minChunkSeconds, previous.start + maxChunkSeconds),
+            )
+            guard earliest < latest,
+                  let moved = quietestPoint(
+                      between: earliest, and: latest, samples: samples, sampleRate: sampleRate,
+                  )
+            else { continue }
+
+            out[index - 1] = SpeechRegion(start: previous.start, end: moved)
+            out[index] = SpeechRegion(start: moved, end: next.end)
+        }
+        return out
+    }
+
+    /// Time in `earliest ... latest` whose surrounding audio is quietest.
+    private static func quietestPoint(
+        between earliest: TimeInterval,
+        and latest: TimeInterval,
+        samples: [Float],
+        sampleRate: Int,
+    ) -> TimeInterval? {
+        let probe = max(1, Int(splitProbeSeconds * Double(sampleRate)))
+        // Step by half a probe: fine enough to find a between-word gap, coarse
+        // enough that a two-second search is a few dozen sums rather than
+        // tens of thousands.
+        let step = max(1, probe / 2)
+        let first = Int(earliest * Double(sampleRate))
+        let last = Int(latest * Double(sampleRate))
+        guard first < last else { return nil }
+
+        var bestPosition: Int?
+        var bestEnergy = Float.greatestFiniteMagnitude
+        var position = first
+        while position <= last {
+            let from = max(0, position - probe / 2)
+            let to = min(samples.count, from + probe)
+            guard from < to else { break }
+            var energy: Float = 0
+            for sample in samples[from ..< to] {
+                energy += sample * sample
+            }
+            if energy < bestEnergy {
+                bestEnergy = energy
+                bestPosition = position
+            }
+            position += step
+        }
+        guard let bestPosition else { return nil }
+        return Double(bestPosition) / Double(sampleRate)
+    }
+
     /// Grow short regions into neighbours so the decoder gets enough audio to
     /// disambiguate against.
     ///

@@ -231,6 +231,13 @@ extension WhisperCppEngine: ChunkedTranscribingEngine {
             return []
         }
 
+        // Nudge the cuts the planner had to make blind onto a quiet moment, now
+        // that the audio is in hand. A cut inside a word decodes as two halves
+        // and rejoins with a space in the middle of it.
+        let placed = SpeechChunkPlanner.snapSplitsToQuietMoments(
+            chunks, samples: samples, sampleRate: AudioConstants.targetSampleRate,
+        )
+
         var config = decodingConfig
         // One window per chunk, so there is no timestamp token to read and none
         // to get wrong — which is the failure that makes the whole-file path
@@ -243,9 +250,9 @@ extension WhisperCppEngine: ChunkedTranscribingEngine {
         let code = WhisperCppRunner.supportedLanguage(WhisperCppLanguage.code(for: language))
         let rate = AudioConstants.targetSampleRate
         var out: [TimestampedSegment] = []
-        out.reserveCapacity(chunks.count)
+        out.reserveCapacity(placed.count)
 
-        for (index, chunk) in chunks.enumerated() {
+        for (index, chunk) in placed.enumerated() {
             guard let range = SpeechChunkPlanner.sampleRange(
                 for: chunk, sampleRate: rate, sampleCount: samples.count,
             ) else { continue }
@@ -266,12 +273,12 @@ extension WhisperCppEngine: ChunkedTranscribingEngine {
             }
             // Real progress, which this path can finally report: the whole-file
             // decode is one opaque call and had to settle for 0-then-1.
-            transcriptionProgress = Double(index + 1) / Double(chunks.count)
+            transcriptionProgress = Double(index + 1) / Double(placed.count)
         }
 
         transcriptionProgress = 1
         logger.info(
-            "whisper.cpp chunked decode: \(chunks.count, privacy: .public) chunks → \(out.count, privacy: .public) segments",
+            "whisper.cpp chunked decode: \(placed.count, privacy: .public) chunks → \(out.count, privacy: .public) segments",
         )
         return out
     }
