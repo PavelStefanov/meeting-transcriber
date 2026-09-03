@@ -59,11 +59,13 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
         let settings = AppSettings(defaults: defaults)
         settings.transcriptionEngine = .whisperKit
 
+        // Index 2, not 3: the per-engine controls are one child of the section
+        // (`engineOptions`), where they used to be two sibling `if` blocks.
         let vocabularyControl = try makeView(settings: settings)
             .inspect()
             .form()
             .section(0)
-            .hStack(3)
+            .hStack(2)
 
         XCTAssertEqual(
             try vocabularyControl.help().string(),
