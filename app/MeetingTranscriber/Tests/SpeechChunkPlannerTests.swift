@@ -26,6 +26,51 @@ final class SpeechChunkPlannerTests: XCTestCase {
         XCTAssertEqual(chunks[1].start, 20)
     }
 
+    // MARK: - Merging short neighbours
+
+    func test_plan_growsShortTurnsSeparatedByAShortPause() {
+        // Four 2 s turns 0.3 s apart: decoded alone each is too short to
+        // disambiguate against, which measured as WER 0.500 vs 0.179 for the
+        // whole file. Merged they become one chunk with real context.
+        let regions = (0 ..< 4).map { index in
+            SpeechRegion(start: Double(index) * 2.3, end: Double(index) * 2.3 + 2)
+        }
+        let chunks = SpeechChunkPlanner.plan(regions: regions)
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(chunks[0].start, 0)
+        XCTAssertEqual(chunks[0].end, 8.9, accuracy: 0.001)
+    }
+
+    func test_plan_stopsGrowingOnceTheChunkHasEnoughContext() {
+        // The first region already exceeds the target, so the second must not
+        // be absorbed: growth exists to rescue short chunks, not to build long
+        // ones.
+        let regions = [SpeechRegion(start: 0, end: 9), SpeechRegion(start: 9.2, end: 11)]
+        let chunks = SpeechChunkPlanner.plan(regions: regions)
+        XCTAssertEqual(chunks.count, 2)
+        XCTAssertEqual(chunks[0].end, 9)
+    }
+
+    func test_plan_refusesToBridgeALongPause() {
+        // A 5 s pause is a turn boundary, not a breath. Crossing it would pack
+        // dead air into the decode and return one segment spanning two turns,
+        // which attributes speech to the wrong speaker.
+        let regions = [SpeechRegion(start: 0, end: 2), SpeechRegion(start: 7, end: 9)]
+        let chunks = SpeechChunkPlanner.plan(regions: regions)
+        XCTAssertEqual(chunks.count, 2, "a 5 s gap must stay a chunk boundary")
+    }
+
+    func test_plan_mergingNeverExceedsADecodeWindow() {
+        // Twenty 2 s turns 0.3 s apart: merging must stop at the window even
+        // though every gap is bridgeable.
+        let regions = (0 ..< 20).map { index in
+            SpeechRegion(start: Double(index) * 2.3, end: Double(index) * 2.3 + 2)
+        }
+        for chunk in SpeechChunkPlanner.plan(regions: regions) {
+            XCTAssertLessThanOrEqual(chunk.duration, SpeechChunkPlanner.maxChunkSeconds)
+        }
+    }
+
     func test_plan_neverExceedsTheWhisperWindow() {
         // 70 s of continuous speech: whisper's window is 30 s, so a single
         // decode is impossible and the split must keep every part under it.
@@ -70,6 +115,30 @@ final class SpeechChunkPlannerTests: XCTestCase {
 
     func test_plan_onNoRegionsYieldsNoChunks() {
         XCTAssertTrue(SpeechChunkPlanner.plan(regions: []).isEmpty)
+    }
+
+    // MARK: - The length gate
+
+    func test_shouldChunk_isFalseInsideOneDecodeWindow() {
+        // A file this short is decoded in a single pass with the whole thing as
+        // context, so there is no window advance to mispredict and nothing for
+        // chunking to fix — measured WER 0.179 whole-file against 0.357 chunked.
+        XCTAssertFalse(SpeechChunkPlanner.shouldChunk(duration: 17))
+        XCTAssertFalse(SpeechChunkPlanner.shouldChunk(duration: 29.8))
+    }
+
+    func test_shouldChunk_isFalseExactlyAtTheWindow() {
+        XCTAssertFalse(
+            SpeechChunkPlanner.shouldChunk(duration: SpeechChunkPlanner.maxChunkSeconds),
+            "a recording that exactly fills one window still needs only one decode",
+        )
+    }
+
+    func test_shouldChunk_isTrueBeyondOneWindow() {
+        // Past the window the decoder starts advancing by timestamp token on a
+        // single decoding path, which is where the repetition comes from.
+        XCTAssertTrue(SpeechChunkPlanner.shouldChunk(duration: 93.8))
+        XCTAssertTrue(SpeechChunkPlanner.shouldChunk(duration: 1785))
     }
 
     // MARK: - sampleRange
