@@ -82,6 +82,16 @@ if ! install_localvqe_resources "$APP_BUNDLE/Contents/Resources"; then
     echo "  WARNING: LocalVQE model unavailable; echo cancellation will find no model."
 fi
 
+# whisper.cpp's dynamic framework, plus the executable rpath that finds it.
+# Fatal here, unlike the LocalVQE model above: that one degrades to "no model",
+# this one is a hard link-time dependency and a bundle without it dies in dyld
+# before `main()` — invisibly, since the app is LSUIElement. It also has to be
+# re-run on every build, because the fresh executable copied above carries no
+# added rpath.
+# shellcheck source=lib/whisper-framework.sh
+source "$SCRIPT_DIR/lib/whisper-framework.sh"
+install_whisper_framework "$APP_BUNDLE" "$SPM_DIR"
+
 # Code-sign so macOS keeps Screen Recording permission across rebuilds.
 # Uses SHA-1 hash to avoid "ambiguous identity" errors with duplicate names.
 SIGN_HASH=$(security find-identity -v -p codesigning | head -1 | awk '{print $2}')
@@ -95,6 +105,13 @@ source "$SCRIPT_DIR/lib/signing.sh"
 # and any later re-sign of the deployed bundle cannot drift apart (issue #609).
 prepare_signing "$APP_BUNDLE" "$DEV_ENTITLEMENTS" "$DEV_BUNDLE_ID" "$SIGN_HASH"
 if [ -n "$SIGNING_IDENTITY" ]; then
+    # Before the bundle, because signing is inside-out. Required and not just
+    # tidy: this codesign call has no `--deep`, so an unsigned nested framework
+    # would be sealed into CodeResources as nested code that carries no
+    # signature, and every `codesign --verify` afterwards — including the one
+    # scripts/lib/signing.sh runs when an e2e lane redeploys this bundle — would
+    # fail on it.
+    sign_whisper_framework "$APP_BUNDLE" "$SIGNING_IDENTITY"
     # Failure is fatal and its stderr is kept. This used to be `2>/dev/null && echo`,
     # which hid both: a bad entitlements path left the bundle completely UNSIGNED
     # with no diagnostic, and every lane that rsyncs it then loses its TCC grants.

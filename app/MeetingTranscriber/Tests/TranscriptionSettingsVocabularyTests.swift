@@ -42,8 +42,8 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
         )
     }
 
-    func testVocabularyControlsRemainAvailableForBothEngines() throws {
-        for engine in [TranscriptionEngineSetting.parakeet, .whisperKit] {
+    func testVocabularyControlsRemainAvailableForEveryEngine() throws {
+        for engine in TranscriptionEngineSetting.availableCases {
             let settings = AppSettings(defaults: defaults)
             settings.transcriptionEngine = engine
             XCTAssertNoThrow(
@@ -59,11 +59,13 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
         let settings = AppSettings(defaults: defaults)
         settings.transcriptionEngine = .whisperKit
 
+        // Index 2, not 3: the per-engine controls are one child of the section
+        // (`engineOptions`), where they used to be two sibling `if` blocks.
         let vocabularyControl = try makeView(settings: settings)
             .inspect()
             .form()
             .section(0)
-            .hStack(3)
+            .hStack(2)
 
         XCTAssertEqual(
             try vocabularyControl.help().string(),
@@ -139,6 +141,7 @@ final class TranscriptionSettingsVocabularyTests: XCTestCase {
             settings: settings,
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
         )
     }
 }

@@ -158,9 +158,17 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
             modelState = .downloading
             downloadProgress = 0
             do {
-                // Step 1: Download with progress tracking
+                // Step 1: Download with progress tracking.
+                //
+                // `downloadBase` is passed rather than left at WhisperKit's
+                // default of `~/Documents/huggingface`, which is the user's
+                // document space and no place for gigabytes of weights — see
+                // `AppPaths.whisperKitModelsDir`, which also records why the
+                // permission-shaped error that prompted this was NOT the
+                // reason.
                 let modelFolder = try await WhisperKit.download(
                     variant: variant,
+                    downloadBase: AppPaths.whisperKitModelsDir,
                 ) { progress in
                     Task { @MainActor in
                         self.downloadProgress = progress.fractionCompleted
@@ -173,7 +181,23 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
                 pipe = try await WhisperKit(
                     WhisperKitConfig(
                         model: variant,
-                        modelFolder: modelFolder.path(),
+                        // Also here, not only on `download` above: the weights
+                        // come from `modelFolder` below, but the TOKENIZER is
+                        // fetched separately and lands under `downloadBase`,
+                        // which defaults to `~/Documents/huggingface`. Passing
+                        // only the download base moved the gigabytes and left a
+                        // few megabytes of tokenizer JSON still being written
+                        // into the user's documents — found by looking, after
+                        // the folder reappeared once the engine had run.
+                        downloadBase: AppPaths.whisperKitModelsDir,
+                        // `percentEncoded: false` because this is a filesystem
+                        // path, not a URL component. `URL.path()` encodes by
+                        // default, so a directory containing a space arrives as
+                        // "Application%20Support" and the load fails with
+                        // "Model file not found" pointing at a path that plainly
+                        // exists. Harmless while the models lived under
+                        // `~/Documents/huggingface`, which has no spaces in it.
+                        modelFolder: modelFolder.path(percentEncoded: false),
                     ),
                 )
                 modelState = .loaded
@@ -432,7 +456,13 @@ final class WhisperKitEngine: TranscribingEngine, StreamingTranscribingEngine {
     }
 
     /// Remove Whisper special tokens like <|startoftranscript|>, <|en|>, <|0.00|>, etc.
-    static func stripWhisperTokens(_ text: String) -> String {
+    ///
+    /// `nonisolated` because it is a pure transform of its argument: it reads no
+    /// stored property and the class's `@MainActor` would otherwise be inherited
+    /// by this static too. `WhisperCppSegmentBuilder.segments` is deliberately a
+    /// pure, off-actor mapping and shares this exact stripping, so the isolation
+    /// has to come off the helper rather than be forced onto that caller.
+    nonisolated static func stripWhisperTokens(_ text: String) -> String {
         text.replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression)
     }
 }

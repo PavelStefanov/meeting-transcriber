@@ -93,6 +93,7 @@ final class GeneralSettingsBrowserWarningTests: XCTestCase {
             settings: makeSettings(browserMeetings: true),
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
             updateChecker: nil,
             notificationVisibility: visibility(authorization: .denied),
             recognitionStatsLog: RecognitionStatsLog(),

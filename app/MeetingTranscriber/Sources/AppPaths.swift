@@ -40,6 +40,43 @@ enum AppPaths {
         return downloads.appendingPathComponent("MeetingTranscriber")
     }()
 
+    /// whisper.cpp GGML model store: `<dataDir>/models/whisper.cpp/`.
+    ///
+    /// Under `dataDir` rather than `~/Library/Caches` on purpose: the full
+    /// large-v3 weights are ~2.9 GB, and a cache directory is a place macOS is
+    /// entitled to empty under disk pressure. It is also not the two existing
+    /// model stores — WhisperKit downloads into its own Hugging Face directory
+    /// and FluidAudio into `FluidAudio/Models` — because neither exposes a hook
+    /// for a foreign artifact, and putting ours beside theirs would only make
+    /// three owners of one directory.
+    static let whisperCppModelsDir = dataDir
+        .appendingPathComponent("models")
+        .appendingPathComponent("whisper.cpp")
+
+    /// WhisperKit model store: `<dataDir>/models/whisperkit/`.
+    ///
+    /// Passed to WhisperKit as its download base, because the default is
+    /// `~/Documents/huggingface`: the user's own document space, frequently
+    /// iCloud-synced, holding gigabytes of weights the app manages by itself —
+    /// 6.4 GB across four variants on the machine this was found on. That is
+    /// the whole justification, and it is enough.
+    ///
+    /// It is NOT justified by TCC. `~/Documents` is a protected location, and a
+    /// load failure there did read like one ("Could not remove corrupted
+    /// metadata file … you don't have permission to access it"), which is what
+    /// first sent this change in. But the app turned out to write into
+    /// `~/Documents` perfectly well — the tokenizer landed there on the very
+    /// next run — so that diagnosis was wrong. The load failure was a bad
+    /// on-disk state in the old cache, and what actually fixed it was moving
+    /// away from that state plus the percent-encoding bug in `WhisperKitEngine`
+    /// that this move exposed.
+    ///
+    /// Under `dataDir` for the same reason as `whisperCppModelsDir`, and beside
+    /// it rather than inside it: two engines, two stores, one owner each.
+    static let whisperKitModelsDir = dataDir
+        .appendingPathComponent("models")
+        .appendingPathComponent("whisperkit")
+
     /// Speaker voice profiles DB.
     static let speakersDB = dataDir.appendingPathComponent("speakers.json")
 

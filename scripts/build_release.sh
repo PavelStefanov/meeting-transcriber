@@ -142,6 +142,16 @@ install_third_party_licenses "$RESOURCES"
 source "$SCRIPT_DIR/lib/localvqe-resources.sh"
 install_localvqe_resources "$RESOURCES"
 
+# whisper.cpp, the runtime behind the "Whisper Large V3 Full" transcription
+# engine. Unlike every other dependency this one is a dynamic framework, so it
+# has to be embedded and the executable given an rpath to it. Fatal on failure:
+# a bundle without it dies in dyld before `main()`, and the app is LSUIElement
+# so that failure is completely silent. Both build variants get it — nothing
+# about whisper.cpp is sandbox-sensitive.
+# shellcheck source=lib/whisper-framework.sh
+source "$SCRIPT_DIR/lib/whisper-framework.sh"
+install_whisper_framework "$APP_BUNDLE" "$SPM_DIR"
+
 # Inject git commit hash
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 /usr/libexec/PlistBuddy -c "Add :GitCommitHash string $GIT_HASH" "$CONTENTS/Info.plist" 2>/dev/null || \
@@ -171,6 +181,13 @@ if [ "$NOTARIZE" = true ]; then
         while IFS= read -r -d '' lib; do
             codesign --force --sign "$DEVELOPER_ID" --options runtime --timestamp "$lib"
         done
+
+    # The framework is signed separately: the loop above matches by extension
+    # and a framework's binary has none. It has to be signed BEFORE the bundle
+    # (signing is inside-out) and with the app's own identity, or Library
+    # Validation — which `--options runtime` turns on — refuses to map a
+    # framework whose Team ID differs from the app's.
+    sign_whisper_framework "$APP_BUNDLE" "$DEVELOPER_ID" --options runtime --timestamp
 
     # Embed the provisioning profile (when available) and derive the
     # entitlements it authorises — see scripts/lib/signing.sh for why the
@@ -217,10 +234,18 @@ if [ "$NOTARIZE" = true ]; then
 else
     # Use local development certificate if available (extract 40-char hex SHA-1 hash)
     SIGN_HASH=$(detect_sign_hash)
+    # `--deep` re-signs nested code, so the framework is covered either way;
+    # signed explicitly first anyway so this path and the notarized one agree on
+    # the order, and so the framework is never momentarily unsigned inside a
+    # sealed bundle. No `--options runtime` here: this path deliberately does
+    # not enable the hardened runtime, which is what makes an ad-hoc signature
+    # workable at all.
     if [ -n "$SIGN_HASH" ]; then
+        sign_whisper_framework "$APP_BUNDLE" "$SIGN_HASH"
         codesign --deep --force --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
         echo "  Signed with certificate: $SIGN_HASH"
     else
+        sign_whisper_framework "$APP_BUNDLE" "-"
         codesign --deep --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
         echo "  Ad-hoc signed (install via right-click → Open)"
     fi

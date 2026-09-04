@@ -38,3 +38,22 @@ extension TranscribingEngine {
 protocol StreamingTranscribingEngine: TranscribingEngine {
     func transcribeSamples(_ samples: [Float]) async throws -> String
 }
+
+/// Engines that decode a recording as a sequence of speech-bounded chunks
+/// instead of one stream, taking each chunk's timing from the caller rather
+/// than from timestamp tokens.
+///
+/// Conformance is what lets the transcribe stage hand over VAD regions it has
+/// already computed. An engine that decodes whole files fine simply doesn't
+/// conform, and the caller's `as? ChunkedTranscribingEngine` picks the path —
+/// the same shape `StreamingTranscribingEngine` uses above.
+///
+/// Why it exists: `SpeechChunkPlanner` carries the measurement. Whisper framed
+/// with one utterance per decode punctuates and cannot loop; framed with a
+/// 30-minute stream it does neither.
+@MainActor
+protocol ChunkedTranscribingEngine: TranscribingEngine {
+    /// Decode `chunks` of the file at `audioPath` and return one segment per
+    /// chunk that produced text, timed on the file's own timeline.
+    func transcribeChunks(audioPath: URL, chunks: [SpeechRegion]) async throws -> [TimestampedSegment]
+}

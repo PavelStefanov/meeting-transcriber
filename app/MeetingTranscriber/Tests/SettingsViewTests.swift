@@ -44,6 +44,7 @@ final class SettingsViewTests: XCTestCase { // swiftlint:disable:this type_body_
             settings: settings ?? makeSettings(),
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
             updateChecker: updateChecker,
             recognitionStatsLog: RecognitionStatsLog(),
             stageTimingLog: StageTimingLog(),
@@ -66,6 +67,7 @@ final class SettingsViewTests: XCTestCase { // swiftlint:disable:this type_body_
             settings: settings ?? makeSettings(),
             whisperKitEngine: WhisperKitEngine(),
             parakeetEngine: ParakeetEngine(),
+            whisperCppEngine: WhisperCppEngine(),
         )
     }
 

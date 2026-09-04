@@ -22,7 +22,9 @@ extension AppSettings {
     /// Parakeet EOU streaming, else → engine-driven re-transcribe.
     var activeEngineLanguageOrNil: String? {
         switch transcriptionEngine {
-        case .whisperKit: whisperLanguageOrNil
+        // whisper.cpp reads the same Whisper language setting as WhisperKit —
+        // same model family, same ISO codes, one picker.
+        case .whisperKit, .whisperCpp: whisperLanguageOrNil
         case .parakeet: parakeetLanguageOrNil
         }
     }

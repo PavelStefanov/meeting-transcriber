@@ -214,6 +214,7 @@ struct MeetingTranscriberApp: App {
                 settings: appState.settings,
                 whisperKitEngine: appState.engines.whisperKit,
                 parakeetEngine: appState.engines.parakeetEngine,
+                whisperCppEngine: appState.engines.whisperCpp,
                 updateChecker: appState.updateChecker,
                 notificationVisibility: appState.permissions.notificationVisibility,
                 // Share the pipeline's actor instance so both writers serialise on
