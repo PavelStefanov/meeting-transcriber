@@ -1,0 +1,7 @@
+# Everything compare.sh downloads or produces. out/ holds transcripts of real
+# recordings and must never be committed.
+.venv-*/
+.cache/
+work/
+out/
+__pycache__/
