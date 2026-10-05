@@ -1,7 +1,8 @@
 # Russian ASR engine comparison (October 2026)
 
 Status: **decided — keep the whisper.cpp engine (full f16 large-v3).**
-Tooling: `tools/asr-compare/compare.sh`, branch `test/asr-compare`.
+Tooling: `compare.sh` in this folder, branch `test/asr-compare`. Run outputs and
+recording-specific notes live in `out/` here (gitignored), not in this file.
 
 ## Question
 

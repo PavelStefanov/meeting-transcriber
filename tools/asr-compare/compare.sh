@@ -15,6 +15,8 @@
 #   .venv-gigaam/ .venv-tone/   Python environments (created on first run)
 #   .cache/                     uv cache + GigaAM, T-one and Hugging Face downloads
 #   out/<name>-<time>/          the transcripts, plus logs/ with per-engine output
+#   out/NOTES.md                recording-specific notes from past comparisons
+# Findings so far (no recording content, committed): RESULTS.md beside this script.
 # The two Whisper engines run through the app's own release build (the same
 # `swift build -c release` run_app.sh does, so the build cache is shared), reuse
 # the models the app already has under

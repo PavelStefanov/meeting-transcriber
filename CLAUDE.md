@@ -26,6 +26,7 @@ tools/audiotap/            # AudioTapLib: CATapDescription app-audio + AVAudioEn
 tools/meeting-simulator/   # Meeting simulator for testing
 tools/mt-cli/              # Thin Swift client for DebugRPCServer (+ skill.md)
 tools/asr-compare/          # Side-by-side ASR comparison on one file (GigaAM, T-one, both Whisper engines)
+                           #   + RESULTS.md (findings); out/ (gitignored) holds transcripts + NOTES.md
 scripts/                   # build_release / run_app / e2e-*.sh drivers, lint.sh, pre-push.sh,
                            #   test-audio + quality-fixture generators, self-hosted runner setup
 Casks/                     # Homebrew Cask formulae (meeting-transcriber + @beta)
@@ -170,7 +171,7 @@ persistent speaker recognition are untouched.
   "Large V3" is the large-v3-turbo checkpoint (4 decoder layers), so beating it
   is a model difference, not a runtime one. A later side-by-side against
   GigaAM, T-one and that picker entry on Russian work calls, and why the engine
-  stays: `docs/plans/2026-10-05-russian-asr-engine-comparison.md`.
+  stays: `tools/asr-compare/RESULTS.md`.
 - **Native integration** is upstream's own `whisper.xcframework` release asset,
   pinned by URL + SHA-256 as a `binaryTarget` named `whisper` (v1.9.2, Metal
   with embedded shaders, CoreML with `ALLOW_FALLBACK`). It is the only
