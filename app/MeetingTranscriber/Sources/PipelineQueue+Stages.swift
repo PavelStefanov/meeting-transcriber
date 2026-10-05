@@ -812,7 +812,7 @@ extension PipelineQueue {
     /// user has VAD switched off, so there is no `vadConfig` to read one from.
     /// The same default the setting itself carries — this is not a second
     /// tunable, just the value that has to exist when the first one is absent.
-    private static let chunkPlanningVadThreshold: Float = 0.5
+    static let chunkPlanningVadThreshold: Float = 0.5
 
     /// Transcribe one 16 kHz track, chunked when the engine decodes chunks and
     /// the recording is long enough to need it.
@@ -835,10 +835,25 @@ extension PipelineQueue {
         _ audioPath: URL,
         engine: any TranscribingEngine,
     ) async throws -> [TimestampedSegment] {
+        try await Self.transcribeTrack(audioPath, engine: engine) {
+            try await self.speechRegions(of: audioPath)
+        }
+    }
+
+    /// The decision behind `transcribeTrack`, with the VAD passed in. Static so
+    /// the `--transcribe` launch mode (`TranscribeCommand`) decodes a file down
+    /// exactly the path a job does, rather than a restatement of it that could
+    /// drift — a comparison run is only worth anything if it measures what the
+    /// app ships.
+    static func transcribeTrack(
+        _ audioPath: URL,
+        engine: any TranscribingEngine,
+        speechRegions: () async throws -> VadSegmentMap,
+    ) async throws -> [TimestampedSegment] {
         guard let chunked = engine as? any ChunkedTranscribingEngine else {
             return try await engine.transcribeSegments(audioPath: audioPath)
         }
-        guard let map = try? await speechRegions(of: audioPath),
+        guard let map = try? await speechRegions(),
               SpeechChunkPlanner.shouldChunk(duration: map.originalDuration)
         else {
             return try await engine.transcribeSegments(audioPath: audioPath)
