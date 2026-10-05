@@ -166,6 +166,11 @@ whisper.cpp beat the WhisperKit path on real Russian meeting audio (as shipped
 in Meetily). Reachable as one more entry at the bottom of the existing Engine
 picker; nothing else about the UX changes, and diarization / Known Voices /
 persistent speaker recognition are untouched.
+- **What the comparison does and does not show:** the picker's WhisperKit
+  "Large V3" is the large-v3-turbo checkpoint (4 decoder layers), so beating it
+  is a model difference, not a runtime one. A later side-by-side against
+  GigaAM, T-one and that picker entry on Russian work calls, and why the engine
+  stays: `docs/plans/2026-10-05-russian-asr-engine-comparison.md`.
 - **Native integration** is upstream's own `whisper.xcframework` release asset,
   pinned by URL + SHA-256 as a `binaryTarget` named `whisper` (v1.9.2, Metal
   with embedded shaders, CoreML with `ALLOW_FALLBACK`). It is the only
