@@ -8,6 +8,7 @@
 #
 # Usage:
 #   tools/asr-compare/compare.sh <audio file> [--lang ru] [--only gigaam,tone,whispercpp,whisperkit]
+#       [--whisperkit-variant openai_whisper-large-v3]   (default: the picker's "Large V3")
 #   tools/asr-compare/compare.sh --clean     # delete venvs + downloaded models (keeps out/)
 #
 # Everything this script creates stays in this folder and is gitignored:
@@ -44,7 +45,7 @@ export TORCH_HOME="$HERE/.cache/torch"
 export GIGAAM_DOWNLOAD_ROOT="$HERE/.cache/gigaam"
 export HF_HUB_DISABLE_TELEMETRY=1
 
-usage() { sed -n '9,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '9,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 if [[ "${1:-}" == "--clean" ]]; then
     rm -rf "$HERE/.venv-gigaam" "$HERE/.venv-tone" "$HERE/.cache" "$HERE/work"
@@ -55,10 +56,12 @@ fi
 AUDIO=""
 LANG_CODE="ru"
 ONLY="gigaam,tone,whispercpp,whisperkit"
+WK_VARIANT="openai_whisper-large-v3-v20240930"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --lang) LANG_CODE="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
+        --whisperkit-variant) WK_VARIANT="$2"; shift 2 ;;
         -h|--help) usage ;;
         -*) echo "unknown option: $1" >&2; usage 1 ;;
         *) AUDIO="$1"; shift ;;
@@ -137,7 +140,8 @@ app_binary() {
 }
 
 swift_engine() { # <engine> <output file>
-    "$APP_BIN" --transcribe "$1" "$WORK/in16k.wav" "$2" --lang "$LANG_CODE"
+    "$APP_BIN" --transcribe "$1" "$WORK/in16k.wav" "$2" --lang "$LANG_CODE" \
+        --whisperkit-variant "$WK_VARIANT"
 }
 
 if wants whispercpp || wants whisperkit; then
@@ -153,8 +157,8 @@ if wants whispercpp; then
 fi
 
 if wants whisperkit; then
-    out="$RUN/4-whisperkit-large-v3-v20240930.txt"
-    run_engine "4. WhisperKit Large V3 (picker)" "$out" swift_engine whisperKit "$out"
+    out="$RUN/4-whisperkit-${WK_VARIANT#openai_whisper-}.txt"
+    run_engine "4. WhisperKit ${WK_VARIANT#openai_whisper-}" "$out" swift_engine whisperKit "$out"
 fi
 
 echo
