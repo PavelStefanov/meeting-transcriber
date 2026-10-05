@@ -25,6 +25,7 @@ app/MeetingTranscriber/    # Swift macOS menu-bar app (SPM)
 tools/audiotap/            # AudioTapLib: CATapDescription app-audio + AVAudioEngine mic capture (SPM lib)
 tools/meeting-simulator/   # Meeting simulator for testing
 tools/mt-cli/              # Thin Swift client for DebugRPCServer (+ skill.md)
+tools/asr-compare/          # Side-by-side ASR comparison on one file (GigaAM, T-one, both Whisper engines)
 scripts/                   # build_release / run_app / e2e-*.sh drivers, lint.sh, pre-push.sh,
                            #   test-audio + quality-fixture generators, self-hosted runner setup
 Casks/                     # Homebrew Cask formulae (meeting-transcriber + @beta)
@@ -94,6 +95,11 @@ cd tools/mt-cli && swift build && .build/debug/mt-cli state
 
 # Build App Store variant (sandbox, no Claude CLI)
 ./scripts/build_release.sh --appstore --no-notarize
+
+# Transcribe one file with GigaAM, T-one, whisper.cpp and WhisperKit side by side.
+# Models, venvs and transcripts stay in tools/asr-compare/ (gitignored; --clean wipes
+# all but out/). The Whisper engines run via the app binary's --transcribe flag.
+tools/asr-compare/compare.sh <audio file> [--lang ru]
 ```
 
 ## Distribution
