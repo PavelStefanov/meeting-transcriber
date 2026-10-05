@@ -1,8 +1,9 @@
 // Process entry point. SwiftUI's App.main() is a protocol requirement, so a
 // conforming type cannot intercept its own launch without recursing into
 // itself; this separate @main enum makes the one pre-launch decision — divert
-// into the LocalVQE selftest probe (scripts/localvqe-bundle-check.sh) or
-// start the GUI — before any app state is constructed.
+// into the LocalVQE selftest probe (scripts/localvqe-bundle-check.sh), into a
+// one-file transcription (tools/asr-compare/compare.sh), or start the GUI —
+// before any app state is constructed.
 import SwiftUI
 
 @main
@@ -19,6 +20,17 @@ enum AppLauncher {
                 arguments: CommandLine.arguments, bundledModel: LocalVQEModel.resolve().path,
             ) {
                 exit(LocalVQESelftest.run(mode))
+            }
+            switch TranscribeCommand.parse(arguments: CommandLine.arguments) {
+            case let .success(command):
+                command.runAndExit()
+
+            case .failure:
+                FileHandle.standardError.write(Data((TranscribeCommand.usage + "\n").utf8))
+                exit(64)
+
+            case nil:
+                break
             }
         #endif
         MeetingTranscriberApp.main()
